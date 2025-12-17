@@ -8,7 +8,7 @@ from io import BytesIO
 import numpy as np
 from PIL import Image
 
-__all__ = ['ThemeColours', 'generate_vertical_gradient']
+__all__ = ['get_vibrant_colour', 'luminance_transform', 'generate_vertical_gradient']
 
 
 # Cache for theme colours
