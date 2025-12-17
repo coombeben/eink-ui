@@ -1,5 +1,8 @@
 """
 All functions for manipulating PIL Images
+
+As the theme colour is calculated using a KMeans clustering algorithm,
+it is cached for performance reasons.
 """
 import hashlib
 from collections import OrderedDict
@@ -7,8 +10,9 @@ from io import BytesIO
 
 import numpy as np
 from PIL import Image
+from sklearn.cluster import KMeans
 
-__all__ = ['get_vibrant_colour', 'luminance_transform', 'generate_vertical_gradient']
+__all__ = ['ThemeColours', 'generate_vertical_gradient']
 
 
 # Cache for theme colours
@@ -28,7 +32,7 @@ class ThemeColours:
             self._cache.move_to_end(image_hash)
             return self._cache[image_hash]
 
-        theme_colour = luminance_transform(get_vibrant_colour(image), threshold=3.)
+        theme_colour = get_theme_colour(image, min_contrast=3.)
         self._cache[image_hash] = theme_colour
         self._cache.move_to_end(image_hash)
 
@@ -38,139 +42,181 @@ class ThemeColours:
         return self._cache.get(image_hash)
 
 
-def get_vibrant_colour(image: Image.Image, top_k: int = 100) -> tuple[int, int, int]:
+def rgb_to_lab(rgb_pixels: np.ndarray) -> np.ndarray:
     """
-    Finds a vibrant background colour from an image
-
-    Args:
-        image: Input PIL Image
-        top_k: Number of top candidates to average (higher = smoother, lower = more vibrant)
-
-    Returns:
-        RGB tuple
+    Convert an array of RGB pixels (0..1) to CIELAB.
+    Input shape: (N, 3), Output shape: (N, 3)
     """
-    # Downsample for performance
-    img = image.copy()
-    img.thumbnail((128, 128))
-    data = np.array(img) / 255.0
-    pixels = data.reshape(-1, 3)
+    # 1. RGB to XYZ
+    # Inverse sRGB Gamma correction
+    mask = rgb_pixels > 0.04045
+    rgb_pixels[mask] = ((rgb_pixels[mask] + 0.055) / 1.055) ** 2.4
+    rgb_pixels[~mask] /= 12.92
 
-    # Convert to HSV for better colour filtering
-    r, g, b = pixels[:, 0], pixels[:, 1], pixels[:, 2]
-    max_c = np.max(pixels, axis=1)
-    min_c = np.min(pixels, axis=1)
-    delta = max_c - min_c
+    # sRGB to XYZ Matrix
+    M = np.array([[0.4124, 0.3576, 0.1805],
+                  [0.2126, 0.7152, 0.0722],
+                  [0.0193, 0.1192, 0.9505]])
+    xyz = np.dot(rgb_pixels, M.T)
 
-    # Hue calculation
-    hue = np.zeros_like(max_c)
-    mask = delta != 0
+    # 2. XYZ to Lab
+    # Normalise to D65 White Point
+    xyz[:, 0] /= 0.95047
+    xyz[:, 1] /= 1.00000
+    xyz[:, 2] /= 1.08883
 
-    r_max = (max_c == r) & mask
-    g_max = (max_c == g) & mask
-    b_max = (max_c == b) & mask
+    mask = xyz > 0.008856
+    xyz[mask] = xyz[mask] ** (1 / 3)
+    xyz[~mask] = 7.787 * xyz[~mask] + 16 / 116
 
-    hue[r_max] = (60 * ((g[r_max] - b[r_max]) / delta[r_max]) + 360) % 360
-    hue[g_max] = (60 * ((b[g_max] - r[g_max]) / delta[g_max]) + 120) % 360
-    hue[b_max] = (60 * ((r[b_max] - g[b_max]) / delta[b_max]) + 240) % 360
-
-    # Saturation
-    saturation = np.divide(delta, max_c, out=np.zeros_like(delta), where=max_c != 0)
-
-    # Value (brightness in HSV)
-    value = max_c
-
-    # Filter out achromatic colours (greys, whites, blacks)
-    saturation_mask = saturation > 0.2
-
-    # Avoid extreme darks and lights
-    value_mask = (value > 0.15) & (value < 0.95)
-
-    # Brown detection: Hue range: 0-40 degrees (red-orange-yellow)
-    brown_mask = ~((hue < 40) & (saturation < 0.5))
-
-    # Combine all filters
-    valid_mask = saturation_mask & value_mask & brown_mask
-
-    # Cascading fallback strategy for edge cases
-    if not np.any(valid_mask):
-        # Fallback 1: Relax saturation requirement
-        valid_mask = (saturation > 0.1) & value_mask & brown_mask
-
-    if not np.any(valid_mask):
-        # Fallback 2: Accept browns but keep some saturation
-        valid_mask = (saturation > 0.1) & value_mask
-
-    if not np.any(valid_mask):
-        # Fallback 3: Just take the most saturated pixels, ignore brightness
-        valid_mask = saturation > 0.05
-
-    if not np.any(valid_mask):
-        # Fallback 4: Truly monochrome - pick mid-brightness greys
-        valid_mask = (value > 0.3) & (value < 0.7)
-        # If even this fails, just use all pixels (shouldn't happen)
-        if not np.any(valid_mask):
-            valid_mask = np.ones(len(pixels), dtype=bool)
-
-    # Calculate vibrancy score only for valid pixels
-    valid_pixels = pixels[valid_mask]
-    valid_saturation = saturation[valid_mask]
-    valid_value = value[valid_mask]
-
-    # Vibrancy metric: combination of saturation and colour variance
-    vibrancy = np.std(valid_pixels, axis=1)
-
-    # Preference for mid-brightness colours (more visually appealing)
-    brightness_pref = 1.0 - np.abs(valid_value - 0.5) * 1.5
-    brightness_pref = np.clip(brightness_pref, 0.1, 1.0)
-
-    # Final score: heavily weight saturation and vibrancy
-    score = (valid_saturation ** 1.5) * (vibrancy ** 2) * brightness_pref
-
-    # Get top K candidates and average them
-    top_indices = np.argsort(score)[-top_k:]
-    candidate_colours = valid_pixels[top_indices]
-
-    # Weight by score when averaging
-    top_scores = score[top_indices]
-    weights = top_scores / np.sum(top_scores)
-    avg_colour = np.average(candidate_colours, axis=0, weights=weights)
-
-    avg_colour_rgb = (avg_colour * 255).astype(int).tolist()
-    return tuple(avg_colour_rgb)
+    lab = np.zeros_like(xyz)
+    lab[:, 0] = 116 * xyz[:, 1] - 16  # L
+    lab[:, 1] = 500 * (xyz[:, 0] - xyz[:, 1])  # a
+    lab[:, 2] = 200 * (xyz[:, 1] - xyz[:, 2])  # b
+    return lab
 
 
-def luminance_transform(colour: tuple[int, int, int], threshold: float = 4.5) -> tuple[int, int, int]:
-    """Applies a luminance transform to a colour to make white text stand out against it."""
-    def srgb_to_linear(c: int) -> float:
-        c /= 255.0
-        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+def lab_to_rgb(lab_pixels: np.ndarray) -> np.ndarray:
+    """
+    Convert an array of CIELAB pixels to RGB (0..1).
+    Input shape: (N, 3), Output shape: (N, 3)
+    """
+    # 1. Lab to XYZ
+    y = (lab_pixels[:, 0] + 16) / 116
+    x = lab_pixels[:, 1] / 500 + y
+    z = y - lab_pixels[:, 2] / 200
 
-    def linear_to_srgb(c: float) -> int:
-        c_srgb = c * 12.92 if c <= 0.0031308 else 1.055 * (c ** (1 / 2.4)) - 0.055
-        return max(0, min(255, int(round(c_srgb * 255))))
+    xyz = np.stack([x, y, z], axis=1)
 
-    r, g, b = colour
+    mask = xyz > 0.20689
+    xyz[mask] = xyz[mask] ** 3
+    xyz[~mask] = (xyz[~mask] - 16 / 116) / 7.787
 
-    # Convert sRGB to Linear RGB
-    r_lin, g_lin, b_lin = srgb_to_linear(r), srgb_to_linear(g), srgb_to_linear(b)
+    # Denormalize D65
+    xyz[:, 0] *= 0.95047
+    xyz[:, 1] *= 1.00000
+    xyz[:, 2] *= 1.08883
 
-    # Calculate current relative luminance
-    # Coefficients based on Rec. 709
-    luminance = 0.2126 * r_lin + 0.7152 * g_lin + 0.0722 * b_lin
+    # 2. XYZ to RGB
+    M_inv = np.array([[3.2406, -1.5372, -0.4986],
+                      [-0.9689, 1.8758, 0.0415],
+                      [0.0557, -0.2040, 1.0570]])
+    rgb = np.dot(xyz, M_inv.T)
 
-    # Calculate target background luminance for white text (L=1.0)
-    max_lum = (1.05 / threshold) - 0.05
+    # Gamma correction
+    mask = rgb > 0.0031308
+    rgb[mask] = 1.055 * (rgb[mask] ** (1 / 2.4)) - 0.055
+    rgb[~mask] *= 12.92
 
-    # If already dark enough, return original; otherwise, scale down
-    if luminance <= max_lum:
-        return r, g, b
+    return np.clip(rgb, 0, 1)
 
-    scale = max_lum / luminance
-    return (
-        linear_to_srgb(r_lin * scale),
-        linear_to_srgb(g_lin * scale),
-        linear_to_srgb(b_lin * scale)
-    )
+
+def contrast_ratio_with_white(rgb):
+    def srgb_channel_to_linear(c):
+        # c in [0,1]
+        return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+    # Relative luminance
+    r, g, b = rgb
+    rl, gl, bl = srgb_channel_to_linear(np.array([r, g, b]))
+    L = 0.2126 * rl + 0.7152 * gl + 0.0722 * bl
+
+    return (1.0 + 0.05) / (L + 0.05)
+
+
+def ensure_white_text_contrast_lab(lab, min_contrast=3.0, step=1.0, min_L=0.0):
+    """
+    Darken by reducing L* until contrast with white meets threshold.
+    Keeps a*, b* to preserve hue/chroma as much as possible.
+    """
+    L, a, b = lab
+    L = float(L)
+    for _ in range(200):  # enough to walk L* downward
+        rgb = np.clip(lab_to_rgb(np.array([[L, a, b]]))[0], 0.0, 1.0)
+        if contrast_ratio_with_white(rgb) >= min_contrast:
+            return np.array([L, a, b], dtype=float)
+        L = max(min_L, L - step)
+        if L <= min_L:
+            break
+    return np.array([L, a, b], dtype=float)
+
+
+def get_theme_colour(
+    image: Image.Image,
+    n_clusters: int = 8,
+    min_contrast: float = 3.0,
+    thumb_size=(128, 128),
+):
+    """
+    Returns an sRGB tuple (R,G,B) 0..255.
+    Picks a prevalent, chromatic Lab cluster, then darkens to meet contrast with white text.
+    """
+    img = image.convert("RGB").copy()
+    img.thumbnail(thumb_size)
+
+    rgb_pixels = (np.asarray(img).reshape(-1, 3).astype(np.float32) / 255.0)
+    if len(rgb_pixels) == 0:
+        return 0, 0, 0
+
+    lab_pixels = rgb_to_lab(rgb_pixels)
+
+    # KMeans can fail if n_clusters > unique colours (common in flat images)
+    # So clamp clusters to number of unique pixels (or at least 1).
+    unique_count = len(np.unique(rgb_pixels, axis=0))
+    k = max(1, min(n_clusters, unique_count))
+
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    labels = kmeans.fit_predict(lab_pixels)
+    centers = kmeans.cluster_centers_  # Lab
+    counts = np.bincount(labels, minlength=k)
+    prevalence = counts / counts.sum()
+
+    # Score each centre by:
+    # - prevalence (dominant colours preferred)
+    # - chroma (interesting)
+    # - lightness preference (avoid very near-white and near-black)
+    # This is intentionally simple and perceptual.
+    scores = []
+    for i in range(k):
+        L, a, b = centers[i]
+        C = float(np.sqrt(a * a + b * b))  # chroma in Lab
+
+        # Lightness gating: avoid backgrounds too close to white (hard to contrast)
+        # and too close to black (often looks dull as a "theme" background).
+        # But don't forbid them—just downweight.
+        lightness_penalty = 1.0
+        if L > 85:
+            lightness_penalty *= 0.25
+        elif L < 10:
+            lightness_penalty *= 0.5
+
+        # "Interesting" penalty for near-neutral colours (low chroma).
+        # Soft penalty: if image is muted, we still pick the best available.
+        chroma_weight = np.clip(C / 40.0, 0.05, 1.5)
+
+        # Prevalence: strongly matters, but don't let it dominate completely.
+        prevalence_weight = np.sqrt(prevalence[i])
+
+        score = prevalence_weight * chroma_weight * lightness_penalty
+        scores.append(score)
+
+    best = int(np.argmax(scores))
+    best_lab = centers[best].astype(float)
+
+    # If everything is basically monochrome (very low chroma across centres),
+    # choose the most prevalent cluster instead (gives stable results).
+    chromas = np.sqrt(centers[:, 1] ** 2 + centers[:, 2] ** 2)
+    if float(np.max(chromas)) < 8.0:
+        best = int(np.argmax(prevalence))
+        best_lab = centers[best].astype(float)
+
+    # Enforce contrast by darkening L* (keeping a*, b*)
+    best_lab = ensure_white_text_contrast_lab(best_lab, min_contrast=min_contrast, step=1.0, min_L=0.0)
+
+    # Convert to RGB
+    rgb01 = np.clip(lab_to_rgb(best_lab[None, :])[0], 0.0, 1.0)
+    rgb255 = (rgb01 * 255.0 + 0.5).astype(np.int32)
+    return int(rgb255[0]), int(rgb255[1]), int(rgb255[2])
 
 
 def generate_vertical_gradient(top_color, shape, power=1.5) -> Image.Image:
@@ -184,16 +230,16 @@ def generate_vertical_gradient(top_color, shape, power=1.5) -> Image.Image:
     """
     width, height = shape
 
-    # 1. Create a 1D ramp (1.0 to 0.0)
+    # Create a 1D ramp (1.0 to 0.0)
     # Applying a power curve prevents the colour from washing out too early
     ramp = np.linspace(1.0, 0.0, height) ** power
     ramp = ramp.reshape(height, 1, 1)
 
-    # 2. Convert colour to array and normalise to 0.0-1.0 for maths
+    # Convert colour to array and normalise to 0.0-1.0 for maths
     color_array = np.array(top_color) / 255.0
 
-    # 3. Multiply and broadcast
+    # Multiply and broadcast
     gradient_data = ramp * color_array * np.ones((1, width, 1))
 
-    # 4. Convert back to 0-255 uint8
+    # Convert back to 0-255 uint8
     return Image.fromarray((gradient_data * 255).astype(np.uint8))

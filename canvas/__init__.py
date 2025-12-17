@@ -10,7 +10,7 @@ from PIL.Image import Resampling
 
 from .fonts import FontFace, FontSize, get_font
 from .icons import Icon, get_icon
-from .image_ops import get_vibrant_colour, luminance_transform, generate_vertical_gradient
+from .image_ops import ThemeColours, generate_vertical_gradient
 from .text_ops import truncate_text, draw_text_truncated
 
 __all__ = ['Canvas']
@@ -36,7 +36,7 @@ def get_image_from_url(url: str) -> Image.Image:
 
 
 # Class which caches expensive theme colour calculations
-# theme_colours = ThemeColours()
+theme_colours = ThemeColours()
 
 
 class Canvas:
@@ -74,8 +74,7 @@ class Canvas:
 
         # Create the background to draw elements on
         album_art = get_image_from_url(album_image_url)
-        # theme_colour = theme_colours.get(album_art)
-        theme_colour = luminance_transform(get_vibrant_colour(album_art), threshold=3.)
+        theme_colour = theme_colours.get(album_art)
         image = generate_vertical_gradient(
             theme_colour,
             self.shape
