@@ -1,5 +1,6 @@
-import time
 import logging
+import time
+import threading
 import warnings
 from datetime import datetime, timedelta
 
@@ -9,6 +10,7 @@ from inky.inky_e673 import Inky
 from dotenv import load_dotenv
 
 from canvas import Canvas
+from buttons import ButtonHandler
 
 LOG_LEVEL = logging.INFO
 LOG_FORMAT = '%(asctime)s %(levelname)s %(message)s'
@@ -16,6 +18,7 @@ DISPLAY_RESOLUTION = (800, 480)
 DISPLAY_SATURATION = 0.75
 MIN_POLL_TIME = 5  # Minimum time between polls
 MAX_POLL_TIME = 30  # Maximum time between polls
+REQUIRED_SCOPES = ['user-modify-playback-state', 'user-read-playback-state', 'user-library-modify']
 
 
 def configure_environment() -> None:
@@ -52,10 +55,14 @@ def main():
     display = Inky(resolution=DISPLAY_RESOLUTION)
     canvas = Canvas(DISPLAY_RESOLUTION)
     auth_manager = SpotifyOAuth(
-        scope="user-read-playback-state",
+        scope=','.join(REQUIRED_SCOPES),
         open_browser=False
     )
     spotify = spotipy.Spotify(auth_manager=auth_manager)
+
+    # Start button handler thread
+    button_handler = ButtonHandler(spotify)
+    threading.Thread(target=button_handler.main_loop, daemon=True).start()
 
     now_playing_track_id = None
     while True:
