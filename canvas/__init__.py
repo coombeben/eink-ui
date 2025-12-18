@@ -36,8 +36,8 @@ class Layout:
     margin: int
     max_text_width: int
     controls_y: int = 0
-    playing_from_y: int = 62
-    playing_from_title_y: int = 80
+    playing_from_y: int = 72
+    playing_from_title_y: int = 96
     album_art_y: int = 0  # Computed
     album_art_shape: tuple[int, int] = (0, 0)  # Computed
     title_y: int = 650
