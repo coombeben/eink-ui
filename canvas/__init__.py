@@ -45,6 +45,7 @@ class Canvas:
         self.shape = shape
         self.rotate_image = False
 
+        # We always render in portrait mode, but the display might expect landscape
         if shape[0] > shape[1]:
             self.shape = (shape[1], shape[0])
             self.rotate_image = True
@@ -103,7 +104,7 @@ class Canvas:
         if not playing_from_title:
             playing_from_text = playing_from_text[:-1]
         draw.text(
-            (x_centre, 52),
+            (x_centre, 62),
             playing_from_text,
             fill='white',
             font=get_font(FontFace.SEMIBOLD, FontSize.XS),
@@ -111,7 +112,7 @@ class Canvas:
         )
         draw_text_truncated(
             draw,
-            (x_centre, 70),
+            (x_centre, 80),
             playing_from_title,
             fill='white',
             font=get_font(FontFace.SEMIBOLD, FontSize.SM),
@@ -121,12 +122,13 @@ class Canvas:
 
         # Add the album art
         album_art = album_art.resize((max_text_width, max_text_width), Resampling.LANCZOS)
-        image.paste(album_art, (self.margin, 114))
+        album_y_pos = (self.height - album_art.height) // 2
+        image.paste(album_art, (self.margin, album_y_pos))
 
         # Add the song title, artist, and album title
         draw_text_truncated(
             draw,
-            (x_centre, 610),
+            (x_centre, 650),
             song_title,
             fill='white',
             font=get_font(FontFace.BOLD, FontSize.XL),
@@ -135,7 +137,7 @@ class Canvas:
         )
         draw_text_truncated(
             draw,
-            (x_centre, 646),
+            (x_centre, 686),
             ', '.join(artists),
             fill='white',
             font=get_font(FontFace.REGULAR, FontSize.BASE),
@@ -144,7 +146,7 @@ class Canvas:
         )
         draw_text_truncated(
             draw,
-            (x_centre, 690),
+            (x_centre, 730),
             album_title,
             fill='white',
             font=get_font(FontFace.ITALIC, FontSize.SM),

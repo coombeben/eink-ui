@@ -16,6 +16,7 @@ LOG_LEVEL = logging.INFO
 LOG_FORMAT = '%(asctime)s %(levelname)s %(message)s'
 DISPLAY_RESOLUTION = (800, 480)
 DISPLAY_SATURATION = 0.75
+UI_MARGIN = 15
 MIN_POLL_TIME = 5  # Minimum time between polls
 MAX_POLL_TIME = 30  # Maximum time between polls
 REQUIRED_SCOPES = ['user-modify-playback-state', 'user-read-playback-state', 'user-library-modify']
@@ -53,7 +54,7 @@ def main():
     configure_environment()
 
     display = Inky(resolution=DISPLAY_RESOLUTION)
-    canvas = Canvas(DISPLAY_RESOLUTION)
+    canvas = Canvas(DISPLAY_RESOLUTION, margin=UI_MARGIN)
     auth_manager = SpotifyOAuth(
         scope=','.join(REQUIRED_SCOPES),
         open_browser=False
@@ -82,6 +83,7 @@ def main():
 
         # Update display
         if now_playing_track_id != now_playing['item']['id']:
+            # TODO: Use the next up to pre-calculate the next image
             image = canvas.generate_image(
                 playing_from=playing_from,
                 playing_from_title=playing_from_title,
