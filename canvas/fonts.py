@@ -12,9 +12,10 @@ __all__ = ['FontSize', 'FontFace', 'get_font']
 class FontSize(Enum):
     XS = 12
     SM = 14
-    BASE = 18
-    L = 22
-    XL = 26
+    BASE = 16
+    LG = 18
+    XL = 20
+    XXL = 24
 
 
 class FontFace(Enum):
@@ -24,7 +25,5 @@ class FontFace(Enum):
     ITALIC = 'fonts/Roboto-Italic.ttf'
 
 
-@functools.lru_cache(maxsize=None)
 def get_font(face: FontFace, size: FontSize) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(face.value, size.value)
-
