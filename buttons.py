@@ -32,7 +32,8 @@ class ButtonHandler:
         while True:
             for event in self.request.read_edge_events():
                 self._handle_button(event)
-                time.sleep(0.1)
+                # Debounce
+                time.sleep(0.2)
 
     def _handle_button(self, event: gpiod.EdgeEvent) -> None:
         """Handle a button press."""
