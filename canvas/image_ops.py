@@ -111,7 +111,8 @@ def lab_to_rgb(lab_pixels: np.ndarray) -> np.ndarray:
     return np.clip(rgb, 0, 1)
 
 
-def contrast_ratio_with_white(rgb):
+def contrast_ratio_with_white(rgb: np.ndarray) -> float:
+    """Returns the contrast ratio of the given RGB tuple with white."""
     def srgb_channel_to_linear(c):
         # c in [0,1]
         return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
@@ -119,26 +120,67 @@ def contrast_ratio_with_white(rgb):
     # Relative luminance
     r, g, b = rgb
     rl, gl, bl = srgb_channel_to_linear(np.array([r, g, b]))
-    L = 0.2126 * rl + 0.7152 * gl + 0.0722 * bl
+    luminance = 0.2126 * rl + 0.7152 * gl + 0.0722 * bl
 
-    return (1.0 + 0.05) / (L + 0.05)
+    return (1.0 + 0.05) / (luminance + 0.05)
 
 
-def ensure_white_text_contrast_lab(lab, min_contrast=3.0, step=1.0, min_L=0.0):
+def ensure_white_text_contrast_lab(
+        lab: np.ndarray, min_contrast: float = 3.0, step: float = 1.0,
+        min_luminance: float = 0.0) -> np.ndarray:
     """
     Darken by reducing L* until contrast with white meets threshold.
     Keeps a*, b* to preserve hue/chroma as much as possible.
     """
-    L, a, b = lab
-    L = float(L)
+    luminance, a, b = lab
+    luminance = float(luminance)
     for _ in range(200):  # enough to walk L* downward
-        rgb = np.clip(lab_to_rgb(np.array([[L, a, b]]))[0], 0.0, 1.0)
+        rgb = np.clip(lab_to_rgb(np.array([[luminance, a, b]]))[0], 0.0, 1.0)
         if contrast_ratio_with_white(rgb) >= min_contrast:
-            return np.array([L, a, b], dtype=float)
-        L = max(min_L, L - step)
-        if L <= min_L:
+            return np.array([luminance, a, b], dtype=float)
+        luminance = max(min_luminance, luminance - step)
+        if luminance <= min_luminance:
             break
-    return np.array([L, a, b], dtype=float)
+    return np.array([luminance, a, b], dtype=float)
+
+
+def score_colour(lab: np.ndarray, prevalence: float) -> float:
+    """
+    Compute a perceptual suitability score for a candidate theme colour.
+
+    The intent of this function is to favour colours that are visually interesting,
+    commonly occurring, and suitable for use as a background colour. This uses 3
+    different weighting factors:
+    1. Prevalence weighting: More frequent colours are more important.
+    2. Chroma weighting: Colours with a high chroma are preferred.
+    3. Lightness weighting: Colours close to white or black are downweighted.
+    """
+    # Score each centre by:
+    # - prevalence (dominant colours preferred)
+    # - chroma (interesting)
+    # - lightness preference (avoid very near-white and near-black)
+    # This is intentionally simple and perceptual.
+    lightness, a, b = lab
+    chroma = float(np.sqrt(a * a + b * b))  # chroma in Lab
+
+    # Lightness gating: avoid backgrounds too close to white (hard to contrast)
+    # and too close to black (often looks dull as a "theme" background).
+    # But don't forbid them—just downweight.
+    lightness_penalty = 1.0
+    if lightness > 85:
+        lightness_penalty *= max(0.25, (100 - lightness) / 15.)
+    elif lightness < 20:
+        lightness_penalty *= max(0.1, lightness / 20.)
+
+    # "Interesting" penalty for near-neutral colours (low chroma).
+    # Soft penalty: if image is muted, we still pick the best available.
+    chroma_weight = np.clip(chroma / 40.0, 0.05, 1.5)
+
+    # Prevalence: strongly matters, but don't let it dominate completely.
+    prevalence_weight = np.sqrt(prevalence)
+
+    score = prevalence_weight * chroma_weight * lightness_penalty
+    return score
 
 
 def get_theme_colour(
@@ -167,48 +209,37 @@ def get_theme_colour(
 
     kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
     labels = kmeans.fit_predict(lab_pixels)
-    centers = kmeans.cluster_centers_  # Lab
+    centres = kmeans.cluster_centers_  # Lab
     counts = np.bincount(labels, minlength=k)
-    prevalence = counts / counts.sum()
+    prevalence_scores = counts / counts.sum()
 
-    # Score each centre by:
-    # - prevalence (dominant colours preferred)
-    # - chroma (interesting)
-    # - lightness preference (avoid very near-white and near-black)
-    # This is intentionally simple and perceptual.
+    # Score each cluster
     scores = []
-    for i in range(k):
-        L, a, b = centers[i]
-        C = float(np.sqrt(a * a + b * b))  # chroma in Lab
-
-        # Lightness gating: avoid backgrounds too close to white (hard to contrast)
-        # and too close to black (often looks dull as a "theme" background).
-        # But don't forbid them—just downweight.
-        lightness_penalty = 1.0
-        if L > 85:
-            lightness_penalty *= 0.25
-        elif L < 10:
-            lightness_penalty *= 0.5
-
-        # "Interesting" penalty for near-neutral colours (low chroma).
-        # Soft penalty: if image is muted, we still pick the best available.
-        chroma_weight = np.clip(C / 40.0, 0.05, 1.5)
-
-        # Prevalence: strongly matters, but don't let it dominate completely.
-        prevalence_weight = np.sqrt(prevalence[i])
-
-        score = prevalence_weight * chroma_weight * lightness_penalty
-        scores.append(score)
+    for centre, prevalence in zip(centres, prevalence_scores):
+        scores.append(score_colour(centre, prevalence))
 
     best = int(np.argmax(scores))
-    best_lab = centers[best].astype(float)
+    best_lab = centres[best].astype(float)
 
     # If everything is basically monochrome (very low chroma across centres),
-    # choose the most prevalent cluster instead (gives stable results).
-    chromas = np.sqrt(centers[:, 1] ** 2 + centers[:, 2] ** 2)
+    # choose a cluster that is actually visible against a black gradient.
+    chromas = np.sqrt(centres[:, 1] ** 2 + centres[:, 2] ** 2)
     if float(np.max(chromas)) < 8.0:
-        best = int(np.argmax(prevalence))
-        best_lab = centers[best].astype(float)
+        # Filter for clusters that aren't "too dark" (e.g. L > 15)
+        # Using 15-20 ensures we don't pick the 'void' in a black photo.
+        visible_mask = centres[:, 0] > 15
+
+        if np.any(visible_mask):
+            # Of the visible clusters, pick the most prevalent one.
+            # This ensures we pick the "main" grey/white rather than a tiny speck.
+            visible_indices = np.where(visible_mask)[0]
+            best = visible_indices[np.argmax(prevalence_scores[visible_indices])]
+        else:
+            # If the entire image is ultra-dark (all L <= 15),
+            # pick the lightest available cluster so it's at least a dark grey.
+            best = int(np.argmax(centres[:, 0]))
+
+        best_lab = centres[best].astype(float)
 
     # Enforce contrast by darkening L* (keeping a*, b*)
     best_lab = ensure_white_text_contrast_lab(best_lab, min_contrast=min_contrast, step=1.0, min_L=0.0)
