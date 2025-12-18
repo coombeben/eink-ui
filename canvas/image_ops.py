@@ -6,7 +6,6 @@ it is cached for performance reasons.
 """
 import hashlib
 from collections import OrderedDict
-from io import BytesIO
 
 import numpy as np
 from PIL import Image
@@ -19,27 +18,28 @@ __all__ = ['ThemeColours', 'generate_vertical_gradient']
 class ThemeColours:
     def __init__(self, max_size: int = 1024):
         self.max_size = max_size
-        self._cache = OrderedDict()
+        self._cache: OrderedDict[str, tuple[int, int, int]] = OrderedDict()
 
     def _hash_image(self, image: Image.Image) -> str:
-        buffer = BytesIO()
-        image.save(buffer, format="PNG")
-        return hashlib.sha256(buffer.getvalue(), usedforsecurity=False).hexdigest()
+        """Returns the hash of a PIL image."""
+        return hashlib.sha256(image.tobytes()).hexdigest()
 
     def get(self, image: Image.Image) -> tuple[int, int, int] | None:
+        """Simple LRU cache implementation"""
         image_hash = self._hash_image(image)
-        if hash in self._cache:
+        if image_hash in self._cache:
             self._cache.move_to_end(image_hash)
             return self._cache[image_hash]
 
-        theme_colour = get_theme_colour(image, min_contrast=3.)
+        theme_colour = get_theme_colour(image, min_contrast=3.)  # Expensive!
         self._cache[image_hash] = theme_colour
         self._cache.move_to_end(image_hash)
 
+        # Evict stale cache entries
         if len(self._cache) > self.max_size:
             self._cache.popitem(last=False)
 
-        return self._cache.get(image_hash)
+        return theme_colour
 
 
 def rgb_to_lab(rgb_pixels: np.ndarray) -> np.ndarray:
@@ -155,11 +155,6 @@ def score_colour(lab: np.ndarray, prevalence: float) -> float:
     2. Chroma weighting: Colours with a high chroma are preferred.
     3. Lightness weighting: Colours close to white or black are downweighted.
     """
-    # Score each centre by:
-    # - prevalence (dominant colours preferred)
-    # - chroma (interesting)
-    # - lightness preference (avoid very near-white and near-black)
-    # This is intentionally simple and perceptual.
     lightness, a, b = lab
     chroma = float(np.sqrt(a * a + b * b))  # chroma in Lab
 
@@ -188,7 +183,7 @@ def get_theme_colour(
     n_clusters: int = 8,
     min_contrast: float = 3.0,
     thumb_size=(128, 128),
-):
+) -> tuple[int, int, int]:
     """
     Returns an sRGB tuple (R,G,B) 0..255.
     Picks a prevalent, chromatic Lab cluster, then darkens to meet contrast with white text.
