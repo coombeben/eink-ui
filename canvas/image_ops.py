@@ -250,12 +250,12 @@ def get_theme_colour(
     return int(rgb255[0]), int(rgb255[1]), int(rgb255[2])
 
 
-def generate_vertical_gradient(top_color, shape, power=1.5) -> Image.Image:
+def generate_vertical_gradient(top_colour: tuple, shape: tuple, power: float = 1.5) -> Image.Image:
     """
-    Creates a vertical gradient from top_color to black using a power curve
+    Creates a vertical gradient from top_colour to black using a power curve
     to avoid the 'grey dead zone' in the middle.
 
-    :param top_color: Tuple of (R, G, B)
+    :param top_colour: Tuple of (R, G, B)
     :param shape: Tuple of (width, height)
     :param power: Higher values (e.g. 1.5-2.0) keep the colour 'pure' longer.
     """
@@ -267,7 +267,7 @@ def generate_vertical_gradient(top_color, shape, power=1.5) -> Image.Image:
     ramp = ramp.reshape(height, 1, 1)
 
     # Convert colour to array and normalise to 0.0-1.0 for maths
-    color_array = np.array(top_color) / 255.0
+    color_array = np.array(top_colour) / 255.0
 
     # Multiply and broadcast
     gradient_data = ramp * color_array * np.ones((1, width, 1))
