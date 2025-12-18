@@ -5,9 +5,9 @@ As the theme colour is calculated using a KMeans clustering algorithm,
 it is cached for performance reasons.
 """
 import hashlib
-from collections import OrderedDict
 
 import numpy as np
+from diskcache import Cache
 from PIL import Image
 from sklearn.cluster import KMeans
 
@@ -16,30 +16,40 @@ __all__ = ['ThemeColours', 'generate_vertical_gradient']
 
 # Cache for theme colours
 class ThemeColours:
-    def __init__(self, max_size: int = 1024):
-        self.max_size = max_size
-        self._cache: OrderedDict[str, tuple[int, int, int]] = OrderedDict()
+    def __init__(self, size_limit: int = 1e7, eviction_policy: str = 'least-recently-used', **kwargs):
+        """Cache for theme colours.
+
+        Args:
+            size_limit: The max size (on disk) of the cache in bytes
+            eviction_policy: The eviction policy to use. See
+                https://grantjenks.com/docs/diskcache/tutorial.html#tutorial-eviction-policies
+        """
+        self._cache = Cache(
+            'theme-colours',
+            size_limit=size_limit,
+            eviction_policy=eviction_policy,
+            **kwargs
+        )
 
     def _hash_image(self, image: Image.Image) -> str:
         """Returns the hash of a PIL image."""
-        return hashlib.sha256(image.tobytes()).hexdigest()
+        img = image.resize((64, 64), resample=Image.Resampling.NEAREST)
+        return hashlib.sha256(img.tobytes()).hexdigest()
 
-    def get(self, image: Image.Image) -> tuple[int, int, int] | None:
+    def get(self, image: Image.Image) -> tuple[int, int, int]:
         """Simple LRU cache implementation"""
         image_hash = self._hash_image(image)
-        if image_hash in self._cache:
-            self._cache.move_to_end(image_hash)
-            return self._cache[image_hash]
+        cached_theme_colour = self._cache.get(image_hash)
+        if cached_theme_colour is not None:
+            return cached_theme_colour
 
         theme_colour = get_theme_colour(image, min_contrast=3.)  # Expensive!
         self._cache[image_hash] = theme_colour
-        self._cache.move_to_end(image_hash)
-
-        # Evict stale cache entries
-        if len(self._cache) > self.max_size:
-            self._cache.popitem(last=False)
-
         return theme_colour
+
+    def close(self) -> None:
+        """Closes the cache."""
+        self._cache.close()
 
 
 def rgb_to_lab(rgb_pixels: np.ndarray) -> np.ndarray:
