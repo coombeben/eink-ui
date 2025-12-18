@@ -2,6 +2,7 @@
 Code responsible for generating the PIL image for the display
 """
 import functools
+from dataclasses import dataclass
 from io import BytesIO
 
 import requests
@@ -16,6 +17,32 @@ from .text_ops import truncate_text, draw_text_truncated
 __all__ = ['Canvas']
 
 BUTTON_SPACING = 120
+
+
+# Which fonts to use for each element
+fonts = {
+    "playing_from": get_font(FontFace.SEMIBOLD, FontSize.SM),
+    "playing_from_title": get_font(FontFace.SEMIBOLD, FontSize.BASE),
+    "title": get_font(FontFace.BOLD, FontSize.XXL),
+    "artist": get_font(FontFace.REGULAR, FontSize.LG),
+    "album": get_font(FontFace.ITALIC, FontSize.SM),
+}
+
+
+# The layout of the elements on the screen
+@dataclass(frozen=True)
+class Layout:
+    x_centre: int
+    margin: int
+    max_text_width: int
+    controls_y: int = 0
+    playing_from_y: int = 62
+    playing_from_title_y: int = 80
+    album_art_y: int = 0  # Computed
+    album_art_shape: tuple[int, int] = (0, 0)  # Computed
+    title_y: int = 650
+    artist_y: int = 686
+    album_y: int = 730
 
 
 @functools.lru_cache(maxsize=512)
@@ -50,7 +77,7 @@ class Canvas:
             self.shape = (shape[1], shape[0])
             self.rotate_image = True
 
-        self.margin = margin
+        self.layout = self._get_layout(margin)
 
     @property
     def width(self) -> int:
@@ -59,6 +86,109 @@ class Canvas:
     @property
     def height(self) -> int:
         return self.shape[1]
+
+    def _get_layout(self, margin: int) -> Layout:
+        """Calculates the layout of the elements on the screen."""
+        # In theory, all y pos should be computed, but I only have the one display to test on
+        max_text_width = self.width - 2 * margin
+        album_art_size = max_text_width
+        album_art_shape = (album_art_size, album_art_size)
+        album_art_y = (self.height - album_art_size) // 2
+
+        return Layout(
+            x_centre=self.width // 2,
+            margin=margin,
+            max_text_width=max_text_width,
+            album_art_y=album_art_y,
+            album_art_shape=album_art_shape
+        )
+
+    def _create_background(self, album_art: Image.Image) -> tuple[Image.Image, ImageDraw.ImageDraw]:
+        """Creates a background image with a vertical gradient based off the album art."""
+        theme_colour = theme_colours.get(album_art)
+        image = generate_vertical_gradient(
+            theme_colour,
+            self.shape
+        )
+        draw = ImageDraw.Draw(image)
+        return image, draw
+
+    def _draw_controls(self, image: Image.Image) -> None:
+        """Draws the favourite/pause/previous/next icons."""
+        heart_icon = get_icon(Icon.HEART)
+        heart_icon_x_pos = self.layout.x_centre - 3 * BUTTON_SPACING // 2 - heart_icon.size[0] // 2
+        image.paste(heart_icon, (heart_icon_x_pos, self.layout.controls_y), mask=heart_icon)
+
+        prev_icon = get_icon(Icon.PREVIOUS)
+        prev_icon_x_pos = self.width // 2 - BUTTON_SPACING // 2 - prev_icon.size[0] // 2
+        image.paste(prev_icon, (prev_icon_x_pos, self.layout.controls_y), mask=prev_icon)
+
+        pause_icon = get_icon(Icon.PAUSE)
+        pause_icon_x_pos = self.width // 2 + BUTTON_SPACING // 2 - pause_icon.size[0] // 2
+        image.paste(pause_icon, (pause_icon_x_pos, self.layout.controls_y), mask=pause_icon)
+
+        next_icon = get_icon(Icon.NEXT)
+        next_icon_x_pos = self.width // 2 + 3 * BUTTON_SPACING // 2 - next_icon.size[0] // 2
+        image.paste(next_icon, (next_icon_x_pos, self.layout.controls_y), mask=next_icon)
+
+    def _draw_playing_from(self, draw: ImageDraw.ImageDraw, playing_from: str, playing_from_title: str) -> None:
+        """Draws the playing from text and title."""
+        if playing_from_title:
+            playing_from_text = f'PLAYING FROM {playing_from.upper()}:'
+        else:
+            playing_from_text = f'PLAYING FROM { playing_from.upper()}'  # No colon
+
+        draw.text(
+            (self.layout.x_centre, self.layout.playing_from_y),
+            playing_from_text,
+            fill='white',
+            font=fonts['playing_from'],
+            anchor='mt'
+        )
+        draw_text_truncated(
+            draw,
+            (self.layout.x_centre, self.layout.playing_from_title_y),
+            playing_from_title,
+            fill='white',
+            font=fonts['playing_from_title'],
+            anchor='mt',
+            max_width=self.layout.max_text_width
+        )
+
+    def _draw_album_art(self, image: Image.Image, album_art: Image.Image):
+        """Draws the album art"""
+        album_art = album_art.resize(self.layout.album_art_shape, Resampling.LANCZOS)
+        image.paste(album_art, (self.layout.margin, self.layout.album_art_y))
+
+    def _draw_track_info(self, draw: ImageDraw.ImageDraw, song_title: str, artists: list[str], album_title: str) -> None:
+        """Draws the song title, artist, and album title"""
+        draw_text_truncated(
+            draw,
+            (self.layout.x_centre, self.layout.title_y),
+            song_title,
+            fill='white',
+            font=fonts['title'],
+            anchor='mt',
+            max_width=self.layout.max_text_width
+        )
+        draw_text_truncated(
+            draw,
+            (self.layout.x_centre, self.layout.artist_y),
+            ', '.join(artists),
+            fill='white',
+            font=fonts['artist'],
+            anchor='mt',
+            max_width=self.layout.max_text_width
+        )
+        draw_text_truncated(
+            draw,
+            (self.layout.x_centre, self.layout.album_y),
+            album_title,
+            fill='white',
+            font=fonts['album'],
+            anchor='mt',
+            max_width=self.layout.max_text_width
+        )
 
     def generate_image(
             self,
@@ -70,91 +200,18 @@ class Canvas:
             album_title: str,
     ) -> Image.Image:
         """Generates the UI given the now playing details."""
-        max_text_width = self.width - (2 * self.margin)
-        x_centre = self.width // 2
-
         # Create the background to draw elements on
         album_art = get_image_from_url(album_image_url)
-        theme_colour = theme_colours.get(album_art)
-        image = generate_vertical_gradient(
-            theme_colour,
-            self.shape
-        )
-        draw = ImageDraw.Draw(image)
+        image, draw = self._create_background(album_art)
 
-        # Add the button icons
-        heart_icon = get_icon(Icon.HEART)
-        heart_icon_x_pos = self.width // 2 - 3 * BUTTON_SPACING // 2 - heart_icon.size[0] // 2
-        image.paste(heart_icon, (heart_icon_x_pos, 0), mask=heart_icon)
-
-        prev_icon = get_icon(Icon.PREVIOUS)
-        prev_icon_x_pos = self.width // 2 - BUTTON_SPACING // 2 - prev_icon.size[0] // 2
-        image.paste(prev_icon, (prev_icon_x_pos, 0), mask=prev_icon)
-
-        pause_icon = get_icon(Icon.PAUSE)
-        pause_icon_x_pos = self.width // 2 + BUTTON_SPACING // 2 - pause_icon.size[0] // 2
-        image.paste(pause_icon, (pause_icon_x_pos, 0), mask=pause_icon)
-
-        next_icon = get_icon(Icon.NEXT)
-        next_icon_x_pos = self.width // 2 + 3 * BUTTON_SPACING // 2 - next_icon.size[0] // 2
-        image.paste(next_icon, (next_icon_x_pos, 0), mask=next_icon)
-
-        # Add the "Playing from" text
-        playing_from_text = f'PLAYING FROM {playing_from.upper()}:'
-        if not playing_from_title:
-            playing_from_text = playing_from_text[:-1]
-        draw.text(
-            (x_centre, 62),
-            playing_from_text,
-            fill='white',
-            font=get_font(FontFace.SEMIBOLD, FontSize.XS),
-            anchor='mt'
-        )
-        draw_text_truncated(
-            draw,
-            (x_centre, 80),
-            playing_from_title,
-            fill='white',
-            font=get_font(FontFace.SEMIBOLD, FontSize.SM),
-            anchor='mt',
-            max_width=max_text_width
-        )
-
-        # Add the album art
-        album_art = album_art.resize((max_text_width, max_text_width), Resampling.LANCZOS)
-        album_y_pos = (self.height - album_art.height) // 2
-        image.paste(album_art, (self.margin, album_y_pos))
-
-        # Add the song title, artist, and album title
-        draw_text_truncated(
-            draw,
-            (x_centre, 650),
-            song_title,
-            fill='white',
-            font=get_font(FontFace.BOLD, FontSize.XL),
-            anchor='mt',
-            max_width=max_text_width
-        )
-        draw_text_truncated(
-            draw,
-            (x_centre, 686),
-            ', '.join(artists),
-            fill='white',
-            font=get_font(FontFace.REGULAR, FontSize.BASE),
-            anchor='mt',
-            max_width=max_text_width
-        )
-        draw_text_truncated(
-            draw,
-            (x_centre, 730),
-            album_title,
-            fill='white',
-            font=get_font(FontFace.ITALIC, FontSize.SM),
-            anchor='mt',
-            max_width=max_text_width
-        )
+        # Draw the elements
+        self._draw_controls(image)
+        self._draw_playing_from(draw, playing_from, playing_from_title)
+        self._draw_album_art(image, album_art)
+        self._draw_track_info(draw, song_title, artists, album_title)
 
         # We always render in portrait mode, but the display might expect landscape
         if self.rotate_image:
             image = image.transpose(Image.Transpose.ROTATE_90)
+
         return image
