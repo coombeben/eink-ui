@@ -242,7 +242,7 @@ def get_theme_colour(
         best_lab = centres[best].astype(float)
 
     # Enforce contrast by darkening L* (keeping a*, b*)
-    best_lab = ensure_white_text_contrast_lab(best_lab, min_contrast=min_contrast, step=1.0, min_L=0.0)
+    best_lab = ensure_white_text_contrast_lab(best_lab, min_contrast=min_contrast)
 
     # Convert to RGB
     rgb01 = np.clip(lab_to_rgb(best_lab[None, :])[0], 0.0, 1.0)
