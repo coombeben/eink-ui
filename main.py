@@ -2,7 +2,6 @@ import logging
 import time
 import threading
 import warnings
-from datetime import datetime, timedelta
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
@@ -76,7 +75,7 @@ def main():
         # Calculate when to poll next
         progress_ms = now_playing['progress_ms']
         duration_ms = now_playing['item']['duration_ms']
-        next_poll_timestamp = datetime.now() + timedelta(seconds=1, milliseconds=duration_ms - progress_ms)
+        next_poll_time = time.monotonic() + (500 + duration_ms - progress_ms) / 1000
 
         # Get context information
         playing_from, playing_from_title = resolve_playback_context(now_playing, spotify)
@@ -97,8 +96,8 @@ def main():
             now_playing_track_id = now_playing['item']['id']
 
         # Sleep until next poll
-        time_until_next_poll = (next_poll_timestamp - datetime.now()).total_seconds()
-        next_poll_time = max(min(time_until_next_poll, MAX_POLL_TIME), MIN_POLL_TIME)
+        time_until_next_poll = max(next_poll_time - time.monotonic(), 0)
+        next_poll_time = min(time_until_next_poll, MAX_POLL_TIME)
         time.sleep(next_poll_time)
 
 
