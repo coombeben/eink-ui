@@ -23,7 +23,7 @@ class ButtonHandler:
     def __init__(self, spotify: Spotify):
         line_settings = gpiod.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP, edge_detection=Edge.FALLING)
         chip = gpiodevice.find_chip_by_platform()
-        self.offsets = [chip.line_offset_from_id(id) for id in BUTTONS]
+        self.offsets = [chip.line_offset_from_id(button_id) for button_id in BUTTONS]
         line_config = dict.fromkeys(self.offsets, line_settings)
         self.request = chip.request_lines(consumer="spectra6-buttons", config=line_config)
         self.spotify = spotify
