@@ -1,5 +1,7 @@
 /venv
 /.idea
+/theme-colours
 .env
 .cache
 *.jpg
+test*.py
