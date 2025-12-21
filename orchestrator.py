@@ -8,6 +8,7 @@ import threading
 import time
 from dataclasses import dataclass
 from queue import Queue, Empty
+from typing import Self
 
 from spotipy import Spotify
 
@@ -22,6 +23,14 @@ class PlaybackState:
     next_up: SpotifyTrack | None
     context: SpotifyContext | None
     now_playing_end_time: float = float('inf')
+
+    def __eq__(self, other: Self) -> bool:
+        """Compares two PlaybackStates for equality."""
+        # As `now_playing_end_time` might change by a few ms, we don't compare it
+        now_playing_equal = self.now_playing.id == other.now_playing.id if self.now_playing and other.now_playing else True
+        next_up_equal = self.next_up.id == other.next_up.id if self.next_up and other.next_up else True
+        context_equal = self.context.uri == other.context.uri if self.context and other.context else True
+        return now_playing_equal and next_up_equal and context_equal
 
 
 class SpotifyOrchestrator:
