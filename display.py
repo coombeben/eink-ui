@@ -31,7 +31,7 @@ class DisplayRenderer:
 
             # Only update the display if the track has changed
             if display_image.track_id != self.current_track_id:
-                logging.debug(f"DisplayRenderer: Rendering {display_image.track_id}")
+                logging.info(f"DisplayRenderer: Rendering {display_image.track_id}")
                 self.current_track_id = display_image.track_id
                 self.display.set_image(display_image.image, self.display_saturation)
                 self.display.show()
