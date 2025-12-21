@@ -3,6 +3,7 @@ The Spotify Orchestrator thread.
 
 The Orchestrator tracks the state of Spotify playback and updates the rendering queue accordingly.
 """
+import logging
 import threading
 import time
 from dataclasses import dataclass
@@ -92,16 +93,20 @@ class SpotifyOrchestrator:
 
     def _enqueue_processing_updates(self) -> None:
         """Add the now playing and next-up tracks to the processing queue."""
-        self.processing_queue.put(ImageTask(
+        now_playing_task = ImageTask(
             state=TrackState.NOW_PLAYING,
             track=self.state.now_playing,
             context=self.state.context
-        ))
-        self.processing_queue.put(ImageTask(
+        )
+        next_up_task = ImageTask(
             state=TrackState.NEXT_UP,
             track=self.state.next_up,
             context=self.state.context
-        ))
+        )
+        logging.debug(f'SpotifyOrchestrator: Enqueued {now_playing_task}')
+        logging.debug(f'SpotifyOrchestrator: Enqueued {next_up_task}')
+        self.processing_queue.put(now_playing_task)
+        self.processing_queue.put(next_up_task)
         
     def handle_command(self, command: Command) -> bool:
         """Executes the given command and returns whether a refresh is required."""
@@ -159,6 +164,7 @@ class SpotifyOrchestrator:
 
     def run(self) -> None:
         """Starts the Spotify Orchestrator thread."""
+        logging.info('Spotify Orchestrator started.')
         while not self.shutdown_event.is_set():
             command = None
             timeout = max(self._next_fetch_time - time.monotonic(), 0)
@@ -168,3 +174,5 @@ class SpotifyOrchestrator:
                 pass
 
             self.tick(command)
+
+        logging.info('Spotify Orchestrator stopped.')

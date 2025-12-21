@@ -2,6 +2,7 @@
 Code responsible for generating the PIL image for the display
 """
 import functools
+import logging
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -235,11 +236,14 @@ class ImageProcessor:
 
         self.images: OrderedDict[str, Image.Image] = OrderedDict()
 
+    @staticmethod
+    def _get_cache_key(track: SpotifyTrack, context: SpotifyContext) -> str:
+        return f'{track.id},{context.uri}'
 
     def _ensure_image(self, track: SpotifyTrack, context: SpotifyContext) -> None:
         """Ensure that an image exists for the given track ID."""
         # Generate the image if it doesn't exist
-        cache_id = f'{track.id},{context.uri}'
+        cache_id = self._get_cache_key(track, context)
         if cache_id not in self.images:
             self.images[cache_id] = self.canvas.generate_image(
                 playing_from=context.type,
@@ -267,5 +271,8 @@ class ImageProcessor:
 
             # Only render the image if it's the current track
             if task.state == TrackState.NOW_PLAYING:
-                image = self.images.pop(task.track.id)
-                self.rendering_queue.put(RenderTask(track_id=task.track.id, image=image))
+                cache_id = self._get_cache_key(task.track, task.context)
+                image = self.images.pop(cache_id)
+                render_task = RenderTask(track_id=task.track.id, image=image)
+                logging.debug(f"ImageProcessor: Request rendering of {task.track.id}")
+                self.rendering_queue.put(render_task)

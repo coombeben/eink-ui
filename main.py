@@ -3,6 +3,7 @@ import time
 import threading
 import signal
 import warnings
+from argparse import ArgumentParser, Namespace
 from queue import Queue
 
 import spotipy
@@ -24,13 +25,16 @@ UI_MARGIN = 15
 MAX_POLL_TIME = 30  # Maximum time between polls
 REQUIRED_SCOPES = ['user-modify-playback-state', 'user-read-playback-state', 'user-library-modify']
 
+parser = ArgumentParser()
+parser.add_argument('--log', default=LOG_LEVEL, help='Set the logging level')
+
 shutdown_event = threading.Event()
 
 
-def configure_environment() -> None:
+def configure_environment(log_level) -> None:
     """Load environment variables from .env file and configure logging."""
     load_dotenv()
-    logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
+    logging.basicConfig(level=log_level, format=LOG_FORMAT)
     warnings.filterwarnings("ignore", message="Busy Wait")
 
     # Register signal handlers
@@ -44,9 +48,9 @@ def handle_shutdown(signum: int, frame: object) -> None:
     shutdown_event.set()
 
 
-def main():
+def main(args: Namespace):
     """Main entry point."""
-    configure_environment()
+    configure_environment(args.log)
 
     # Init the inter-thread communication objects
     command_queue: Queue[Command] = Queue()  # Instructions from the GPIO buttons
@@ -91,6 +95,7 @@ def main():
         threading.Thread(target=button_handler.run)
     ]
 
+    logging.info('Starting threads...')
     for thread in threads:
         thread.start()
 
@@ -104,4 +109,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    args = parser.parse_args()
+    main(args)
