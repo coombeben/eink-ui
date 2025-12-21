@@ -66,10 +66,6 @@ def get_image_from_url(url: str) -> Image.Image:
     return image
 
 
-# Class which caches expensive theme colour calculations
-theme_colours = ThemeColours()
-
-
 class Canvas:
     def __init__(self, shape: tuple[int, int], margin: int = 10):
         """Class responsible for generating the UI"""
@@ -82,6 +78,8 @@ class Canvas:
             self.rotate_image = True
 
         self.layout = self._get_layout(margin)
+        # Caches expensive theme colour calculations
+        self.theme_colours = ThemeColours()
 
     @property
     def width(self) -> int:
@@ -220,6 +218,10 @@ class Canvas:
 
         return image
 
+    def close(self) -> None:
+        """Cleans up any resources used by the canvas."""
+        self.theme_colours.close()
+
 
 class ImageProcessor:
     def __init__(
@@ -259,8 +261,15 @@ class ImageProcessor:
             if len(self.images) > 2:
                 self.images.popitem(last=False)
 
+    def _close(self) -> None:
+        """Cleans up any resources used by the image processor."""
+        self.canvas.close()
+        logging.info('Image processor stopped')
+
+
     def run(self):
         """Wait for tasks to arrive in the processing queue and render them to the rendering queue."""
+        logging.info('Started image processor')
         while not self.stop_event.is_set():
             try:
                 task: ImageTask = self.processing_queue.get(timeout=1)
@@ -276,3 +285,5 @@ class ImageProcessor:
                 render_task = RenderTask(track_id=task.track.id, image=image)
                 logging.debug(f"ImageProcessor: Request rendering of {task.track.id}")
                 self.rendering_queue.put(render_task)
+
+        self._close()
