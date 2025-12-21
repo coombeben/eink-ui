@@ -33,7 +33,8 @@ class SpotifyOrchestrator:
         self._next_fetch_time = time.monotonic() + poll_interval
         self.shutdown_event = shutdown_event
 
-        self.state: PlaybackState = self.get_playback_state()
+        self.state: PlaybackState | None = None
+        self.state = self.get_playback_state()
 
     def _get_playback_context(self, currently_playing: dict) -> SpotifyContext | None:
         """Determine the context from which the current track is playing.
