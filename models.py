@@ -4,7 +4,7 @@ Common data models and classes used throughout the application.
 import threading
 from collections import deque
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import Generic, Self, TypeVar, Literal
 
 from PIL import Image
@@ -78,7 +78,7 @@ class SpotifyContext:
     title: str
 
 
-class TrackState(Enum, int):
+class TrackState(IntEnum):
     NOW_PLAYING = 0
     NEXT_UP = 1
 
