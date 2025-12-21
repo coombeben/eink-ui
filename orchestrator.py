@@ -77,9 +77,9 @@ class SpotifyOrchestrator:
         # Create objects for PlaybackState
         # Note that as we cannot get both `currently_playing` and `play_queue` in a single request,
         # they might disagree.
-        now_playing = SpotifyTrack.from_track_object(currently_playing['item'])
+        now_playing = SpotifyTrack.from_track_object(play_queue['currently_playing'])
         now_playing_end_time = time.monotonic() + (now_playing.duration_ms - currently_playing['progress_ms']) / 1000
-        next_up = SpotifyTrack.from_track_object(play_queue['next_tracks'][0])
+        next_up = SpotifyTrack.from_track_object(play_queue['queue'][0])
         context = self._get_playback_context(currently_playing)
 
         return PlaybackState(
