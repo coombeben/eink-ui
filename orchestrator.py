@@ -27,9 +27,9 @@ class PlaybackState:
     def __eq__(self, other: Self) -> bool:
         """Compares two PlaybackStates for equality."""
         # As `now_playing_end_time` might change by a few ms, we don't compare it
-        now_playing_equal = self.now_playing.id == other.now_playing.id if self.now_playing and other.now_playing else True
-        next_up_equal = self.next_up.id == other.next_up.id if self.next_up and other.next_up else True
-        context_equal = self.context.uri == other.context.uri if self.context and other.context else True
+        now_playing_equal = self.now_playing.id == other.now_playing.id if self.now_playing and other.now_playing else False
+        next_up_equal = self.next_up.id == other.next_up.id if self.next_up and other.next_up else False
+        context_equal = self.context.uri == other.context.uri if self.context and other.context else False
         return now_playing_equal and next_up_equal and context_equal
 
 
@@ -173,7 +173,7 @@ class SpotifyOrchestrator:
 
     def run(self) -> None:
         """Starts the Spotify Orchestrator thread."""
-        logging.info('Spotify Orchestrator started.')
+        logging.info('Started Spotify orchestrator')
         while not self.shutdown_event.is_set():
             command = None
             timeout = max(self._next_fetch_time - time.monotonic(), 0)
@@ -184,4 +184,4 @@ class SpotifyOrchestrator:
 
             self.tick(command)
 
-        logging.info('Spotify Orchestrator stopped.')
+        logging.info('Spotify Orchestrator stopped')
