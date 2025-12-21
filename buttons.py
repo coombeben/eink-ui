@@ -54,11 +54,11 @@ class ButtonHandler:
 
     def _cleanup(self):
         """Clean up on shutdown"""
-        logging.info("Shutting down button handler")
+        logging.info("Stopping button handler...")
         self.request.release()
 
     def run(self) -> None:
-        logging.info("Starting button handler")
+        logging.info("Started button handler")
         while not self.shutdown_event.is_set():
             if self.request.wait_edge_events(timeout=1):
                 for event in self.request.read_edge_events():

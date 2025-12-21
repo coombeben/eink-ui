@@ -107,7 +107,7 @@ class Canvas:
 
     def _create_background(self, album_art: Image.Image) -> tuple[Image.Image, ImageDraw.ImageDraw]:
         """Creates a background image with a vertical gradient based off the album art."""
-        theme_colour = theme_colours.get(album_art)
+        theme_colour = self.theme_colours.get(album_art)
         image = generate_vertical_gradient(
             theme_colour,
             self.shape
@@ -263,9 +263,8 @@ class ImageProcessor:
 
     def _close(self) -> None:
         """Cleans up any resources used by the image processor."""
+        logging.info('Image processor stopping...')
         self.canvas.close()
-        logging.info('Image processor stopped')
-
 
     def run(self):
         """Wait for tasks to arrive in the processing queue and render them to the rendering queue."""
