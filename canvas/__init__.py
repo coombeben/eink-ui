@@ -11,7 +11,7 @@ import requests
 from PIL import Image, ImageDraw
 from PIL.Image import Resampling
 
-from ..models import SpotifyTrack, SpotifyContext, EvictingQueue, ImageTask, RenderTask, TrackState
+from models import SpotifyTrack, SpotifyContext, EvictingQueue, ImageTask, RenderTask, TrackState
 from .fonts import FontFace, FontSize, get_font
 from .icons import Icon, get_icon
 from .image_ops import ThemeColours, generate_vertical_gradient
