@@ -1,24 +1,30 @@
 import logging
 import time
 import threading
+import signal
 import warnings
+from queue import Queue
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from inky.inky_e673 import Inky
 from dotenv import load_dotenv
 
-from canvas import Canvas
 from buttons import ButtonHandler
+from canvas import Canvas, ImageProcessor
+from display import DisplayRenderer
+from orchestrator import SpotifyOrchestrator
+from models import EvictingQueue, Command, ImageTask, RenderTask
 
 LOG_LEVEL = logging.INFO
 LOG_FORMAT = '%(asctime)s %(levelname)s %(message)s'
 DISPLAY_RESOLUTION = (800, 480)
 DISPLAY_SATURATION = 0.75
 UI_MARGIN = 15
-MIN_POLL_TIME = 5  # Minimum time between polls
 MAX_POLL_TIME = 30  # Maximum time between polls
 REQUIRED_SCOPES = ['user-modify-playback-state', 'user-read-playback-state', 'user-library-modify']
+
+shutdown_event = threading.Event()
 
 
 def configure_environment() -> None:
@@ -27,31 +33,27 @@ def configure_environment() -> None:
     logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
     warnings.filterwarnings("ignore", message="Busy Wait")
 
+    # Register signal handlers
+    signal.signal(signal.SIGINT, handle_shutdown)
+    signal.signal(signal.SIGTERM, handle_shutdown)
 
-def resolve_playback_context(now_playing: dict, spotify: spotipy.Spotify) -> tuple[str, str]:
-    """Determine the context from which the current track is playing.
-    This is one of playlist/artist/album and the title."""
-    context = now_playing['context']
-    playing_from = context['type'] if context else 'unknown'
-    if playing_from == 'playlist' and context['uri'].endswith('recommended'):
-        playing_from = 'recommended'
-        playing_from_title = ''
-    elif playing_from == 'playlist':
-        playlist_info = spotify.playlist(context['uri'], fields='name')
-        playing_from_title = playlist_info['name']
-    elif playing_from == 'artist':
-        playing_from_title = now_playing['item']['artists'][0]['name']
-    elif playing_from == 'album':
-        playing_from_title = now_playing['item']['album']['name']
-    else:
-        playing_from_title = ''
 
-    return playing_from, playing_from_title
+def handle_shutdown(signum: int, frame: object) -> None:
+    """Handle SIGTERM and SIGINT signals."""
+    logging.info('Received SIGTERM or SIGINT, shutting down.')
+    shutdown_event.set()
 
 
 def main():
+    """Main entry point."""
     configure_environment()
 
+    # Init the inter-thread communication objects
+    command_queue: Queue[Command] = Queue()  # Instructions from the GPIO buttons
+    processing_queue: EvictingQueue[ImageTask] = EvictingQueue(maxlen=2)  # Tracks to render a background image for
+    rendering_queue: EvictingQueue[RenderTask] = EvictingQueue(maxlen=1)  # Images to display on the screen
+
+    # Init the standard components
     display = Inky(resolution=DISPLAY_RESOLUTION)
     canvas = Canvas(DISPLAY_RESOLUTION, margin=UI_MARGIN)
     auth_manager = SpotifyOAuth(
@@ -60,45 +62,45 @@ def main():
     )
     spotify = spotipy.Spotify(auth_manager=auth_manager)
 
-    # Start button handler thread
-    button_handler = ButtonHandler(spotify)
-    threading.Thread(target=button_handler.main_loop, daemon=True).start()
+    # Create and start the threads
+    spotify_orchestrator = SpotifyOrchestrator(
+        spotify,
+        command_queue,
+        processing_queue,
+        shutdown_event,
+        poll_interval=MAX_POLL_TIME
+    )
+    image_processor = ImageProcessor(
+        processing_queue,
+        rendering_queue,
+        canvas,
+        shutdown_event
+    )
+    display_renderer = DisplayRenderer(
+        display,
+        rendering_queue,
+        shutdown_event,
+        display_saturation=DISPLAY_SATURATION
+    )
+    button_handler = ButtonHandler(spotify, command_queue, shutdown_event)
 
-    now_playing_track_id = None
-    while True:
-        # Get the current playback state
-        now_playing = spotify.currently_playing()
-        if now_playing is None or not now_playing['is_playing']:
-            time.sleep(MAX_POLL_TIME)
-            continue
+    threads = [
+        threading.Thread(target=spotify_orchestrator.run),
+        threading.Thread(target=image_processor.run),
+        threading.Thread(target=display_renderer.run),
+        threading.Thread(target=button_handler.run)
+    ]
 
-        # Calculate when to poll next
-        progress_ms = now_playing['progress_ms']
-        duration_ms = now_playing['item']['duration_ms']
-        next_poll_time = time.monotonic() + (500 + duration_ms - progress_ms) / 1000
+    for thread in threads:
+        thread.start()
 
-        # Get context information
-        playing_from, playing_from_title = resolve_playback_context(now_playing, spotify)
-
-        # Update display
-        if now_playing_track_id != now_playing['item']['id']:
-            # TODO: Use the next up to pre-calculate the next image
-            image = canvas.generate_image(
-                playing_from=playing_from,
-                playing_from_title=playing_from_title,
-                album_image_url=now_playing['item']['album']['images'][0]['url'],
-                song_title=now_playing['item']['name'],
-                artists=[artist['name'] for artist in now_playing['item']['artists']],
-                album_title=now_playing['item']['album']['name']
-            )
-            display.set_image(image, DISPLAY_SATURATION)
-            display.show()
-            now_playing_track_id = now_playing['item']['id']
-
-        # Sleep until next poll
-        time_until_next_poll = max(next_poll_time - time.monotonic(), 0)
-        next_poll_time = min(time_until_next_poll, MAX_POLL_TIME)
-        time.sleep(next_poll_time)
+    # Run until shutdown
+    try:
+        while not shutdown_event.is_set():
+            time.sleep(1)
+    finally:
+        for thread in threads:
+            thread.join()
 
 
 if __name__ == '__main__':
