@@ -48,7 +48,7 @@ class SpotifyOrchestrator:
 
         # TODO: Store the entire queue in  `PlaybackState` and only query the API when queue gets too short.
         self.state: PlaybackState | None = None
-        self.state = self.get_playback_state()
+        self.state = self._get_playback_state()
 
     def _get_playback_context(self, currently_playing: dict) -> SpotifyContext | None:
         """Determine the context from which the current track is playing.
@@ -61,16 +61,22 @@ class SpotifyOrchestrator:
         if self.state and context_uri == self.state.context.uri:
             return current_contxt
 
+        # Determine the source of the current track
         playing_from = context['type'] if context else 'unknown'
-        if playing_from == 'playlist' and context_uri.endswith('recommended'):
+        if context_uri.endswith('recommended'):
+            # We could strip the ":recommended" from the URI and get a `playing_from_title`
+            # But I prefer the look of just saying: "Playing from recommended"
             playing_from = 'recommended'
             playing_from_title = ''
         elif playing_from == 'playlist':
+            # Get the playlist name from the Spotify API
             playlist_info = self.spotify.playlist(context_uri, fields='name')
             playing_from_title = playlist_info['name']
         elif playing_from == 'artist':
+            # We don't need to lookup the artist's name, as it is already in the track metadata
             playing_from_title = currently_playing['item']['artists'][0]['name']
         elif playing_from == 'album':
+            # We don't need to lookup the album's name, as it is already in the track metadata
             playing_from_title = currently_playing['item']['album']['name']
         else:
             playing_from_title = ''
@@ -81,13 +87,15 @@ class SpotifyOrchestrator:
             title=playing_from_title
         )
 
-    def get_playback_state(self) -> PlaybackState | None:
+    def _get_playback_state(self) -> PlaybackState | None:
         """Returns the current playback state."""
         # Get the current track and the next track in the queue from the Spotify API
         currently_playing = self.spotify.currently_playing()
         if not currently_playing:
             return None
         play_queue = self.spotify.queue()
+        if play_queue is None or play_queue['currently_playing'] is None:
+            return None
 
         # Create objects for PlaybackState
         # Note that as we cannot get both `currently_playing` and `play_queue` in a single request,
@@ -121,7 +129,7 @@ class SpotifyOrchestrator:
         self.processing_queue.put(now_playing_task)
         self.processing_queue.put(next_up_task)
         
-    def handle_command(self, command: Command) -> bool:
+    def _handle_command(self, command: Command) -> bool:
         """Executes the given command and returns whether a refresh is required."""
         refresh_required = False
         
@@ -162,13 +170,13 @@ class SpotifyOrchestrator:
         default_poll_time = time.monotonic() + self.poll_interval
         self._next_fetch_time = min(track_end_time, default_poll_time)
 
-    def tick(self, command: Command | None = None) -> None:
+    def _tick(self, command: Command | None = None) -> None:
         """Handles commands; updates state; enqueues processing"""
-        refresh_required = self.handle_command(command) if command else True
+        refresh_required = self._handle_command(command) if command else True
         if not refresh_required:
             return
 
-        state = self.get_playback_state()
+        state = self._get_playback_state()
         if state != self.state:
             self.state = state
             self._enqueue_processing_updates()
@@ -186,6 +194,6 @@ class SpotifyOrchestrator:
             except Empty:
                 pass
 
-            self.tick(command)
+            self._tick(command)
 
         logging.info('Spotify Orchestrator stopped')
