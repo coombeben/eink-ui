@@ -9,7 +9,6 @@ from queue import Queue
 import gpiod
 import gpiodevice
 from gpiod.line import Bias, Direction, Edge
-from spotipy import Spotify
 
 from models import Command
 
@@ -29,8 +28,7 @@ INPUT = gpiod.LineSettings(
 
 
 class ButtonHandler:
-    def __init__(self, spotify: Spotify, command_queue: Queue[Command], shutdown_event: threading.Event):
-        self.spotify = spotify
+    def __init__(self, command_queue: Queue[Command], shutdown_event: threading.Event):
         self.command_queue = command_queue
         self.shutdown_event = shutdown_event
 

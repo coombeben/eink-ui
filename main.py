@@ -1,5 +1,4 @@
 import logging
-import time
 import threading
 import signal
 import warnings
@@ -12,8 +11,8 @@ from inky.inky_e673 import Inky
 from dotenv import load_dotenv
 
 from buttons import ButtonHandler
-from canvas import Canvas, ImageProcessor
-from display import DisplayRenderer
+from graphics import Canvas, ImageProcessor
+from renderer import DisplayRenderer
 from orchestrator import SpotifyOrchestrator
 from models import EvictingQueue, Command, ImageTask, RenderTask
 
@@ -44,7 +43,6 @@ def configure_environment(log_level) -> None:
 
 def handle_shutdown(signum: int, frame: object) -> None:
     """Handle SIGTERM and SIGINT signals."""
-    logging.info('Received SIGTERM or SIGINT, shutting down.')
     shutdown_event.set()
 
 
@@ -86,13 +84,13 @@ def main(args: Namespace):
         shutdown_event,
         display_saturation=DISPLAY_SATURATION
     )
-    button_handler = ButtonHandler(spotify, command_queue, shutdown_event)
+    button_handler = ButtonHandler(command_queue, shutdown_event)
 
     threads = [
-        threading.Thread(target=spotify_orchestrator.run),
-        threading.Thread(target=image_processor.run),
-        threading.Thread(target=display_renderer.run),
-        threading.Thread(target=button_handler.run)
+        threading.Thread(name='spotify', target=spotify_orchestrator.run),
+        threading.Thread(name='processor', target=image_processor.run),
+        threading.Thread(name='renderer', target=display_renderer.run),
+        threading.Thread(name='buttons', target=button_handler.run)
     ]
 
     logging.info('Starting threads...')
@@ -101,8 +99,8 @@ def main(args: Namespace):
 
     # Run until shutdown
     try:
-        while not shutdown_event.is_set():
-            time.sleep(1)
+        shutdown_event.wait()
+        logging.info('Received SIGTERM or SIGINT, shutting down.')
     finally:
         for thread in threads:
             thread.join()

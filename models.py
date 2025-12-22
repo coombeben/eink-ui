@@ -16,7 +16,7 @@ _T = TypeVar("_T")
 
 
 class EvictingQueue(Generic[_T]):
-    def __init__(self, maxlen: int):
+    def __init__(self, maxlen: int | None = None):
         """
         A thread-safe FIFO queue with a maximum length.
         Different from `queue.Queue` as new puts push out old values rather than blocking
@@ -25,6 +25,7 @@ class EvictingQueue(Generic[_T]):
         self.cond = threading.Condition()
 
     def put(self, item: _T) -> None:
+        """Put an item into the queue."""
         with self.cond:
             self.deque.append(item)
             self.cond.notify()
@@ -39,6 +40,7 @@ class EvictingQueue(Generic[_T]):
             return self.deque.popleft()
 
 
+# A command to be sent to the Spotify client
 class Command(Enum):
     NEXT = "NEXT"
     PREVIOUS = "PREVIOUS"
@@ -46,6 +48,7 @@ class Command(Enum):
     PAUSE = "PAUSE"
 
 
+# A Spotify track
 @dataclass
 class SpotifyTrack:
     id: str
@@ -68,9 +71,11 @@ class SpotifyTrack:
         )
 
 
+# The source of the current track
 PlayingFrom = Literal['playlist', 'artist', 'album', 'recommended', 'unknown']
 
 
+# The current Spotify context
 @dataclass
 class SpotifyContext:
     uri: str
@@ -78,11 +83,13 @@ class SpotifyContext:
     title: str
 
 
+# The current track state
 class TrackState(IntEnum):
     NOW_PLAYING = 0
     NEXT_UP = 1
 
 
+# A task to create an image for the track
 @dataclass
 class ImageTask:
     state: TrackState
@@ -90,6 +97,7 @@ class ImageTask:
     context: SpotifyContext
 
 
+# A task to render an image to the screen
 @dataclass
 class RenderTask:
     track_id: str
