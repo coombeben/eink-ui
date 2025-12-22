@@ -26,6 +26,9 @@ class PlaybackState:
 
     def __eq__(self, other: Self) -> bool:
         """Compares two PlaybackStates for equality."""
+        if not isinstance(other, PlaybackState):
+            return False
+
         # As `now_playing_end_time` might change by a few ms, we don't compare it
         now_playing_equal = self.now_playing.id == other.now_playing.id if self.now_playing and other.now_playing else False
         next_up_equal = self.next_up.id == other.next_up.id if self.next_up and other.next_up else False
@@ -43,6 +46,7 @@ class SpotifyOrchestrator:
         self._next_fetch_time = time.monotonic() + poll_interval
         self.shutdown_event = shutdown_event
 
+        # TODO: Store the entire queue in  `PlaybackState` and only query the API when queue gets too short.
         self.state: PlaybackState | None = None
         self.state = self.get_playback_state()
 
