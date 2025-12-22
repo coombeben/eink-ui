@@ -43,10 +43,10 @@ flowchart LR
 
     %% Threaded components
     subgraph Threads
-        ButtonHandler[ButtonHandler\n(Thread)]
-        Orchestrator[SpotifyOrchestrator\n(Thread)]
-        ImageProcessor[ImageProcessor\n(Thread)]
-        DisplayRenderer[DisplayRenderer\n(Thread)]
+        ButtonHandler[ButtonHandler]
+        Orchestrator[SpotifyOrchestrator]
+        ImageProcessor[ImageProcessor]
+        DisplayRenderer[DisplayRenderer]
     end
 
     %% Button input
@@ -61,8 +61,8 @@ flowchart LR
     SpotifyAPI -->|Now Playing / Queue| Orchestrator
 
     %% Processing pipeline
-    Orchestrator -->|ImageTask (state changed)| ImageProcessor
-    ImageProcessor -->|RenderTask (playing now)| DisplayRenderer
+    Orchestrator -->|ImageTask| ImageProcessor
+    ImageProcessor -->|RenderTask| DisplayRenderer
 
     %% Display output
     DisplayRenderer -->|Render Image| EInk
