@@ -1,5 +1,5 @@
 """
-Code responsible for generating the PIL image for the display
+All classes and functions for working with graphics
 """
 from .canvas import Canvas
-from .image_processor import ImageProcessor
+from .image_worker import ImageWorker

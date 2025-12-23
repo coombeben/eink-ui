@@ -12,6 +12,8 @@ from gpiod.line import Bias, Direction, Edge
 
 from models import Command
 
+logger = logging.getLogger(__name__)
+
 # GPIO setup
 SW_A = 5
 SW_B = 6
@@ -27,7 +29,7 @@ INPUT = gpiod.LineSettings(
 )
 
 
-class ButtonHandler:
+class ButtonWorker:
     def __init__(self, command_queue: Queue[Command], shutdown_event: threading.Event):
         self.command_queue = command_queue
         self.shutdown_event = shutdown_event
@@ -44,7 +46,7 @@ class ButtonHandler:
         try:
             index = self.offsets.index(event.line_offset)
         except ValueError:
-            logging.warning(f'Unidentified button press: {event.line_offset}')
+            logger.warning(f'Unidentified button press: {event.line_offset}')
             return
         label = LABELS[index]
         command = Command(label)
@@ -52,11 +54,11 @@ class ButtonHandler:
 
     def _cleanup(self):
         """Clean up on shutdown"""
-        logging.info("Stopping button handler...")
+        logger.info("Stopping button handler...")
         self.request.release()
 
     def run(self) -> None:
-        logging.info("Started button handler")
+        logger.info("Started button handler")
         while not self.shutdown_event.is_set():
             if self.request.wait_edge_events(timeout=1):
                 for event in self.request.read_edge_events():

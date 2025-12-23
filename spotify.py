@@ -14,7 +14,9 @@ from spotipy import Spotify
 
 from models import Command, SpotifyTrack, SpotifyContext, TrackState, EvictingQueue, ImageTask
 
-__all__ = ['SpotifyOrchestrator']
+__all__ = ['SpotifyWorker']
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -36,7 +38,7 @@ class PlaybackState:
         return now_playing_equal and next_up_equal and context_equal
 
 
-class SpotifyOrchestrator:
+class SpotifyWorker:
     def __init__(self, spotify: Spotify, command_queue: Queue, processing_queue: EvictingQueue, shutdown_event: threading.Event, poll_interval: float = 10):
         """Class to keep track of the Spotify playback state and update the rendering queue accordingly."""
         self.spotify = spotify
@@ -124,11 +126,11 @@ class SpotifyOrchestrator:
             track=self.state.next_up,
             context=self.state.context
         )
-        logging.debug(f'SpotifyOrchestrator: Enqueued {now_playing_task}')
-        logging.debug(f'SpotifyOrchestrator: Enqueued {next_up_task}')
         self.processing_queue.put(now_playing_task)
+        logger.debug(f'Enqueued {now_playing_task}')
         self.processing_queue.put(next_up_task)
-        
+        logger.debug(f'Enqueued {next_up_task}')
+
     def _handle_command(self, command: Command) -> bool:
         """Executes the given command and returns whether a refresh is required."""
         refresh_required = False
@@ -185,7 +187,7 @@ class SpotifyOrchestrator:
 
     def run(self) -> None:
         """Starts the Spotify Orchestrator thread."""
-        logging.info('Started Spotify orchestrator')
+        logger.info('Started Spotify orchestrator')
         while not self.shutdown_event.is_set():
             command = None
             timeout = max(self._next_fetch_time - time.monotonic(), 0)
@@ -196,4 +198,4 @@ class SpotifyOrchestrator:
 
             self._tick(command)
 
-        logging.info('Spotify Orchestrator stopped')
+        logger.info('Spotify Orchestrator stopped')

@@ -10,10 +10,10 @@ from spotipy.oauth2 import SpotifyOAuth
 from inky.inky_e673 import Inky
 from dotenv import load_dotenv
 
-from buttons import ButtonHandler
-from graphics import Canvas, ImageProcessor
-from renderer import DisplayRenderer
-from orchestrator import SpotifyOrchestrator
+from buttons import ButtonWorker
+from graphics import Canvas, ImageWorker
+from renderer import DisplayWorker
+from spotify import SpotifyWorker
 from models import EvictingQueue, Command, ImageTask, RenderTask
 
 LOG_LEVEL = logging.INFO
@@ -24,8 +24,11 @@ UI_MARGIN = 15
 MAX_POLL_TIME = 30  # Maximum time between polls
 REQUIRED_SCOPES = ['user-modify-playback-state', 'user-read-playback-state', 'user-library-modify']
 
+logger = logging.getLogger(__name__)
+
 parser = ArgumentParser()
 parser.add_argument('--log', default=LOG_LEVEL, help='Set the logging level')
+parser.add_argument('--saturation', default=DISPLAY_SATURATION, type=float, help='Set the saturation of the display')
 
 shutdown_event = threading.Event()
 
@@ -55,7 +58,7 @@ def main(args: Namespace):
     processing_queue: EvictingQueue[ImageTask] = EvictingQueue(maxlen=2)  # Tracks to render a background image for
     rendering_queue: EvictingQueue[RenderTask] = EvictingQueue(maxlen=1)  # Images to display on the screen
 
-    # Init the standard components
+    # Init the required components
     display = Inky(resolution=DISPLAY_RESOLUTION)
     canvas = Canvas(DISPLAY_RESOLUTION, margin=UI_MARGIN)
     auth_manager = SpotifyOAuth(
@@ -65,26 +68,26 @@ def main(args: Namespace):
     spotify = spotipy.Spotify(auth_manager=auth_manager)
 
     # Create and start the threads
-    spotify_orchestrator = SpotifyOrchestrator(
+    spotify_orchestrator = SpotifyWorker(
         spotify,
         command_queue,
         processing_queue,
         shutdown_event,
         poll_interval=MAX_POLL_TIME
     )
-    image_processor = ImageProcessor(
+    image_processor = ImageWorker(
+        canvas,
         processing_queue,
         rendering_queue,
-        canvas,
         shutdown_event
     )
-    display_renderer = DisplayRenderer(
+    display_renderer = DisplayWorker(
         display,
         rendering_queue,
         shutdown_event,
-        display_saturation=DISPLAY_SATURATION
+        display_saturation=args.saturation
     )
-    button_handler = ButtonHandler(command_queue, shutdown_event)
+    button_handler = ButtonWorker(command_queue, shutdown_event)
 
     threads = [
         threading.Thread(name='spotify', target=spotify_orchestrator.run),
@@ -93,14 +96,14 @@ def main(args: Namespace):
         threading.Thread(name='buttons', target=button_handler.run)
     ]
 
-    logging.info('Starting threads...')
+    logger.info('Starting threads...')
     for thread in threads:
         thread.start()
 
     # Run until shutdown
     try:
         shutdown_event.wait()
-        logging.info('Received SIGTERM or SIGINT, shutting down.')
+        logger.info('Received SIGTERM or SIGINT, shutting down.')
     finally:
         for thread in threads:
             thread.join()

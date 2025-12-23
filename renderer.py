@@ -8,11 +8,19 @@ from inky.inky_e673 import Inky
 
 from models import EvictingQueue, RenderTask
 
-__all__ = ['DisplayRenderer']
+__all__ = ['DisplayWorker']
+
+logger = logging.getLogger(__name__)
 
 
-class DisplayRenderer:
-    def __init__(self, display: Inky, rendering_queue: EvictingQueue[RenderTask], shutdown_event: threading.Event, display_saturation: float = 0.5):
+class DisplayWorker:
+    def __init__(
+            self,
+            display: Inky,
+            rendering_queue: EvictingQueue[RenderTask],
+            shutdown_event: threading.Event,
+            display_saturation: float = 0.5
+    ):
         self.display = display
         self.rendering_queue = rendering_queue
         self.shutdown_event = shutdown_event
@@ -20,20 +28,26 @@ class DisplayRenderer:
 
         self.current_track_id: str | None = None
 
-    def run(self):
-        logging.info("Started display renderer")
+    def _tick(self, task: RenderTask) -> None:
+        """Handles rendering of the given task"""
+        logger.debug(f'Received task to render {task.track_id}')
+
+        # Only update the display if the track has changed
+        if task.track_id != self.current_track_id:
+            logger.debug(f'Rendering {task.track_id}')
+            self.current_track_id = task.track_id
+            self.display.set_image(task.image, self.display_saturation)
+            self.display.show()
+
+    def run(self) -> None:
+        """Starts the display rendering thread"""
+        logger.info("Started display renderer")
         while not self.shutdown_event.is_set():
             try:
-                display_image = self.rendering_queue.get(timeout=1)
+                task = self.rendering_queue.get(timeout=1)
             except TimeoutError:
                 continue
-            logging.debug(f"DisplayRenderer: Received task to render {display_image.track_id}")
 
-            # Only update the display if the track has changed
-            if display_image.track_id != self.current_track_id:
-                logging.info(f"DisplayRenderer: Rendering {display_image.track_id}")
-                self.current_track_id = display_image.track_id
-                self.display.set_image(display_image.image, self.display_saturation)
-                self.display.show()
+            self._tick(task)
 
-        logging.info('Display renderer stopped')
+        logger.info('Display renderer stopped')

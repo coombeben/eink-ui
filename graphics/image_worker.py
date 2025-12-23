@@ -1,5 +1,5 @@
 """
-The ImageProcessor thread.
+The ImageWorker thread.
 
 Responsible processing requests for images to be generated for the display
 """
@@ -13,18 +13,18 @@ from models import SpotifyTrack, SpotifyContext, EvictingQueue, ImageTask, Rende
 from .canvas import Canvas
 
 
-class ImageProcessor:
+class ImageWorker:
     def __init__(
             self,
+            canvas: Canvas,
             processing_queue: EvictingQueue,
             rendering_queue: EvictingQueue,
-            canvas: Canvas,
-            stop_event: threading.Event
+            shutdown_event: threading.Event
     ):
+        self.canvas = canvas
         self.processing_queue = processing_queue
         self.rendering_queue = rendering_queue
-        self.canvas = canvas
-        self.stop_event = stop_event
+        self.shutdown_event = shutdown_event
 
         self.images: OrderedDict[str, Image.Image] = OrderedDict()
 
@@ -60,7 +60,7 @@ class ImageProcessor:
     def run(self):
         """Wait for tasks to arrive in the processing queue and render them to the rendering queue."""
         logging.info('Started image processor')
-        while not self.stop_event.is_set():
+        while not self.shutdown_event.is_set():
             try:
                 task: ImageTask = self.processing_queue.get(timeout=1)
             except TimeoutError:
@@ -73,7 +73,7 @@ class ImageProcessor:
                 cache_id = self._get_cache_key(task.track, task.context)
                 image = self.images.pop(cache_id)
                 render_task = RenderTask(track_id=task.track.id, image=image)
-                logging.debug(f"ImageProcessor: Request rendering of {task.track.id}")
+                logging.debug(f"ImageWorker: Request rendering of {task.track.id}")
                 self.rendering_queue.put(render_task)
 
         self._close()

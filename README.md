@@ -43,15 +43,15 @@ flowchart LR
 
     %% Threaded components
     subgraph Threads
-        ButtonHandler[ButtonHandler]
-        Orchestrator[SpotifyOrchestrator]
-        ImageProcessor[ImageProcessor]
-        DisplayRenderer[DisplayRenderer]
+        ButtonWorker[ButtonWorker]
+        Orchestrator[SpotifyWorker]
+        ImageWorker[ImageWorker]
+        DisplayWorker[DisplayWorker]
     end
 
     %% Button input
-    GPIO -->|Button Press| ButtonHandler
-    ButtonHandler -->|Command| Orchestrator
+    GPIO -->|Button Press| ButtonWorker
+    ButtonWorker -->|Command| Orchestrator
 
     %% Orchestrator triggers
     Orchestrator -->|Poll Interval / Track Ending| Orchestrator
@@ -61,11 +61,11 @@ flowchart LR
     SpotifyAPI -->|Now Playing / Queue| Orchestrator
 
     %% Processing pipeline
-    Orchestrator -->|ImageTask| ImageProcessor
-    ImageProcessor -->|RenderTask| DisplayRenderer
+    Orchestrator -->|ImageTask| ImageWorker
+    ImageWorker -->|RenderTask| DisplayWorker
 
     %% Display output
-    DisplayRenderer -->|Render Image| EInk
+    DisplayWorker -->|Render Image| EInk
 ```
 
 ## Installation
