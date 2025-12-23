@@ -4,64 +4,28 @@ All functions for manipulating PIL Images
 As the theme colour is calculated using a KMeans clustering algorithm,
 it is cached for performance reasons.
 """
-import hashlib
-
 import numpy as np
-from diskcache import Cache
 from PIL import Image
 from sklearn.cluster import KMeans
 
-__all__ = ['ThemeColours', 'generate_vertical_gradient']
-
-
-# Cache for theme colours
-class ThemeColours:
-    def __init__(self, size_limit: int = 1e7, eviction_policy: str = 'least-recently-used', **kwargs):
-        """Cache for theme colours.
-
-        Args:
-            size_limit: The max size (on disk) of the cache in bytes
-            eviction_policy: The eviction policy to use. See
-                https://grantjenks.com/docs/diskcache/tutorial.html#tutorial-eviction-policies
-        """
-        self._cache = Cache(
-            'theme-colours',
-            size_limit=size_limit,
-            eviction_policy=eviction_policy,
-            **kwargs
-        )
-
-    def _hash_image(self, image: Image.Image) -> str:
-        """Returns the hash of a PIL image."""
-        img = image.resize((64, 64), resample=Image.Resampling.NEAREST)
-        return hashlib.sha256(img.tobytes()).hexdigest()
-
-    def get(self, image: Image.Image) -> tuple[int, int, int]:
-        """Simple LRU cache implementation"""
-        image_hash = self._hash_image(image)
-        cached_theme_colour = self._cache.get(image_hash)
-        if cached_theme_colour is not None:
-            return cached_theme_colour
-
-        theme_colour = get_theme_colour(image, min_contrast=3.)  # Expensive!
-        self._cache[image_hash] = theme_colour
-        return theme_colour
-
-    def close(self) -> None:
-        """Closes the cache."""
-        self._cache.close()
+__all__ = ['generate_vertical_gradient', 'get_theme_colour']
 
 
 def rgb_to_lab(rgb_pixels: np.ndarray) -> np.ndarray:
     """
     Convert an array of RGB pixels (0..1) to CIELAB.
+    Uses D65 white point.
     Input shape: (N, 3), Output shape: (N, 3)
+
+    https://web.archive.org/web/20111111073625/http://www.easyrgb.com/index.php?X=MATH&H=02#text2
     """
     # 1. RGB to XYZ
     # Inverse sRGB Gamma correction
-    mask = rgb_pixels > 0.04045
-    rgb_pixels[mask] = ((rgb_pixels[mask] + 0.055) / 1.055) ** 2.4
-    rgb_pixels[~mask] /= 12.92
+    rgb_pixels = np.where(
+        rgb_pixels > 0.04045,
+        ((rgb_pixels + 0.055) / 1.055) ** 2.4,
+        rgb_pixels / 12.92
+    )
 
     # sRGB to XYZ Matrix
     M = np.array([[0.4124, 0.3576, 0.1805],
@@ -75,9 +39,7 @@ def rgb_to_lab(rgb_pixels: np.ndarray) -> np.ndarray:
     xyz[:, 1] /= 1.00000
     xyz[:, 2] /= 1.08883
 
-    mask = xyz > 0.008856
-    xyz[mask] = xyz[mask] ** (1 / 3)
-    xyz[~mask] = 7.787 * xyz[~mask] + 16 / 116
+    xyz = np.where(xyz > 0.008856, xyz, 7.787 * xyz + 16 / 116)
 
     lab = np.zeros_like(xyz)
     lab[:, 0] = 116 * xyz[:, 1] - 16  # L
@@ -89,7 +51,10 @@ def rgb_to_lab(rgb_pixels: np.ndarray) -> np.ndarray:
 def lab_to_rgb(lab_pixels: np.ndarray) -> np.ndarray:
     """
     Convert an array of CIELAB pixels to RGB (0..1).
+    Uses D65 white point.
     Input shape: (N, 3), Output shape: (N, 3)
+
+    https://web.archive.org/web/20111111080001/http://www.easyrgb.com/index.php?X=MATH&H=01#tex1
     """
     # 1. Lab to XYZ
     y = (lab_pixels[:, 0] + 16) / 116
@@ -97,10 +62,7 @@ def lab_to_rgb(lab_pixels: np.ndarray) -> np.ndarray:
     z = y - lab_pixels[:, 2] / 200
 
     xyz = np.stack([x, y, z], axis=1)
-
-    mask = xyz > 0.20689
-    xyz[mask] = xyz[mask] ** 3
-    xyz[~mask] = (xyz[~mask] - 16 / 116) / 7.787
+    xyz = np.where(xyz > 0.20689, xyz ** 3, (xyz - 16 / 116) / 7.787)
 
     # Denormalize D65
     xyz[:, 0] *= 0.95047
@@ -201,7 +163,7 @@ def get_theme_colour(
     img = image.convert("RGB").copy()
     img.thumbnail(thumb_size)
 
-    rgb_pixels = (np.asarray(img).reshape(-1, 3).astype(np.float32) / 255.0)
+    rgb_pixels = np.asarray(img).reshape(-1, 3).astype(np.float32) / 255.0
     if len(rgb_pixels) == 0:
         return 0, 0, 0
 

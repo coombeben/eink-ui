@@ -9,9 +9,10 @@ import requests
 from PIL import Image, ImageDraw
 from PIL.Image import Resampling
 
+from .cache import ThemeCache
 from .fonts import FontFace, FontSize, get_font
 from .icons import Icon, get_icon
-from .image_ops import ThemeColours, generate_vertical_gradient
+from .image_ops import generate_vertical_gradient
 from .text_ops import draw_text_truncated
 
 __all__ = ['Canvas']
@@ -75,7 +76,7 @@ class Canvas:
 
         self.layout = self._get_layout(margin)
         # Caches expensive theme colour calculations
-        self.theme_colours = ThemeColours()
+        self.theme_colours = ThemeCache()
 
     @property
     def width(self) -> int:
