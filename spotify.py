@@ -55,7 +55,7 @@ class SpotifyWorker:
     def _get_playback_context(self, currently_playing: dict) -> SpotifyContext | None:
         """Determine the context from which the current track is playing.
         This is one of playlist/artist/album and the title."""
-        current_context = self.state.context if self.state else None
+        current_context = self.state.context if self.state else {}
         context = currently_playing.get('context')
         context_uri = context.get('uri')
 
