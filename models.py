@@ -45,7 +45,7 @@ class Command(Enum):
     NEXT = "NEXT"
     PREVIOUS = "PREVIOUS"
     SAVE = "SAVE"
-    PAUSE = "PAUSE"
+    TOGGLE = "TOGGLE_PLAYBACK"
 
 
 # A Spotify track

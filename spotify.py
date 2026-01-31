@@ -150,7 +150,8 @@ class SpotifyWorker:
             self.spotify.current_user_saved_tracks_add([track_id])
             # Saving a track does not require a refresh
 
-        elif command == Command.PAUSE:
+        elif command == Command.TOGGLE:
+            # We need to check whether playback is currently playing to know which action to take
             now_playing = self.spotify.currently_playing()
             if not now_playing:
                 return refresh_required
