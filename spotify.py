@@ -11,6 +11,7 @@ from queue import Queue, Empty
 from typing import Self
 
 from spotipy import Spotify
+from spotipy.exceptions import SpotifyException
 
 from models import Command, SpotifyTrack, SpotifyContext, TrackState, EvictingQueue, ImageTask
 
@@ -72,8 +73,13 @@ class SpotifyWorker:
             playing_from_title = ''
         elif playing_from == 'playlist':
             # Get the playlist name from the Spotify API
-            playlist_info = self.spotify.playlist(context_uri, fields='name')
-            playing_from_title = playlist_info['name']
+            try:
+                playlist_info = self.spotify.playlist(context_uri, fields='name')
+                playing_from_title = playlist_info['name']
+            except SpotifyException:
+                # "Made for you" playlists don't seem to work on the Spotify API and return a 404
+                # In this case, we just don't show the playlist name
+                playing_from_title = ''
         elif playing_from == 'artist':
             # We don't need to lookup the artist's name, as it is already in the track metadata
             playing_from_title = currently_playing['item']['artists'][0]['name']
