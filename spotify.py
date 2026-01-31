@@ -122,6 +122,10 @@ class SpotifyWorker:
 
     def _enqueue_processing_updates(self) -> None:
         """Add the now playing and next-up tracks to the processing queue."""
+        # No updates if we don't have a state yet
+        if self.state is None:
+            return
+
         now_playing_task = ImageTask(
             state=TrackState.NOW_PLAYING,
             track=self.state.now_playing,
