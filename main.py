@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from buttons import ButtonWorker
 from graphics import Canvas, ImageWorker
 from renderer import DisplayWorker
+from session import create_session
 from spotify import SpotifyWorker
 from models import EvictingQueue, Command, ImageTask, RenderTask
 
@@ -65,7 +66,10 @@ def main(args: Namespace):
         scope=','.join(REQUIRED_SCOPES),
         open_browser=False
     )
-    spotify = spotipy.Spotify(auth_manager=auth_manager)
+    spotify = spotipy.Spotify(
+        auth_manager=auth_manager,
+        requests_session=create_session()
+    )
 
     # Create and start the threads
     spotify_orchestrator = SpotifyWorker(
