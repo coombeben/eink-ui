@@ -58,6 +58,18 @@ def main(args: Namespace):
     command_queue: Queue[Command] = Queue()  # Instructions from the GPIO buttons
     processing_queue: EvictingQueue[ImageTask] = EvictingQueue(maxlen=2)  # Tracks to render a background image for
     rendering_queue: EvictingQueue[RenderTask] = EvictingQueue(maxlen=1)  # Images to display on the screen
+    thread_exceptions: "Queue[BaseException]" = Queue(maxsize=1)
+
+    def guarded_run(fn, thread_name: str):
+        try:
+            fn()
+        except BaseException as e:
+            logger.exception("Unhandled exception in thread '%s'", thread_name)
+            shutdown_event.set()
+            try:
+                thread_exceptions.put_nowait(e)  # keep first exception only
+            except Exception:
+                pass
 
     # Init the required components
     display = Inky(resolution=DISPLAY_RESOLUTION)
@@ -94,21 +106,25 @@ def main(args: Namespace):
     button_handler = ButtonWorker(command_queue, shutdown_event)
 
     threads = [
-        threading.Thread(name='spotify', target=spotify_orchestrator.run),
-        threading.Thread(name='processor', target=image_processor.run),
-        threading.Thread(name='renderer', target=display_renderer.run),
-        threading.Thread(name='buttons', target=button_handler.run)
+        threading.Thread(name='spotify', target=lambda: guarded_run(spotify_orchestrator.run, 'spotify')),
+        threading.Thread(name='processor', target=lambda: guarded_run(image_processor.run, 'processor')),
+        threading.Thread(name='renderer', target=lambda: guarded_run(display_renderer.run, 'renderer')),
+        threading.Thread(name='buttons', target=lambda: guarded_run(button_handler.run, 'buttons'))
     ]
 
     logger.info('Starting threads...')
     for thread in threads:
         thread.start()
 
-    # Run until shutdown
+    # Run until shutdown (or any thread crashes)
     try:
-        shutdown_event.wait()
+        while not shutdown_event.is_set():
+            shutdown_event.wait(timeout=0.2)
+            if not thread_exceptions.empty():
+                raise thread_exceptions.get()
         logger.info('Received SIGTERM or SIGINT, shutting down.')
     finally:
+        shutdown_event.set()
         for thread in threads:
             thread.join()
 
