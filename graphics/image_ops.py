@@ -39,7 +39,7 @@ def rgb_to_lab(rgb_pixels: np.ndarray) -> np.ndarray:
     xyz[:, 1] /= 1.00000
     xyz[:, 2] /= 1.08883
 
-    xyz = np.where(xyz > 0.008856, xyz, 7.787 * xyz + 16 / 116)
+    xyz = np.where(xyz > 0.008856, np.cbrt(xyz), 7.787 * xyz + 16 / 116)
 
     lab = np.zeros_like(xyz)
     lab[:, 0] = 116 * xyz[:, 1] - 16  # L
@@ -62,7 +62,8 @@ def lab_to_rgb(lab_pixels: np.ndarray) -> np.ndarray:
     z = y - lab_pixels[:, 2] / 200
 
     xyz = np.stack([x, y, z], axis=1)
-    xyz = np.where(xyz > 0.20689, xyz ** 3, (xyz - 16 / 116) / 7.787)
+    xyz_cubed = xyz ** 3
+    xyz = np.where(xyz_cubed > 0.008856, xyz_cubed, (xyz - 16 / 116) / 7.787)
 
     # Denormalize D65
     xyz[:, 0] *= 0.95047
@@ -76,9 +77,7 @@ def lab_to_rgb(lab_pixels: np.ndarray) -> np.ndarray:
     rgb = np.dot(xyz, M_inv.T)
 
     # Gamma correction
-    mask = rgb > 0.0031308
-    rgb[mask] = 1.055 * (rgb[mask] ** (1 / 2.4)) - 0.055
-    rgb[~mask] *= 12.92
+    rgb = np.where(rgb > 0.0031308, 1.055 * (rgb ** (1 / 2.4)) - 0.055, rgb * 12.92)
 
     return np.clip(rgb, 0, 1)
 
@@ -152,7 +151,7 @@ def score_colour(lab: np.ndarray, prevalence: float) -> float:
 
 def get_theme_colour(
     image: Image.Image,
-    n_clusters: int = 8,
+    n_clusters: int = 5,
     min_contrast: float = 3.0,
     thumb_size=(128, 128),
 ) -> tuple[int, int, int]:
